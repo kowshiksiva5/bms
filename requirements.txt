@@ -2,3 +2,27 @@ selenium>=4.20.0
 undetected-chromedriver>=3.5.5
 beautifulsoup4>=4.12.0
 requests>=2.31.0
+
+
+python app.py "https://in.bookmyshow.com/movies/hyderabad/sir-madam/buytickets/ET00453138" \
+  --dates 2025-08-13,2025-08-14 \
+  --theatres \
+    "AMB Cinemas: Gachibowli" \
+    "Bhramaramba 70MM A/C 4K Dolby: Kukatpally" \
+    "Cinepolis: Lulu Mall, Hyderabad" \
+    "INOX: GSM Mall, Hyderabad" \
+    "Miraj Cinemas: CineTown, Miyapur" \
+    "Miraj Cinemas: Geeta, Chandanagar" \
+    "PVR ICON: Hitech, Madhapur, Hyderabad" \
+    "PVR: Atrium Gachibowli, Hyderabad" \
+    "INOX: Prism Mall, Hyderabad" \
+    "PVR: Inorbit, Cyberabad" \
+    "PVR: Nexus Mall Kukatpally, Hyderabad" \
+    "PVR: Preston, Gachibowli Hyderabad" \
+    "INOX: SMR Vinay Metro Mall, Hyderabad" \
+    "GPR Multiplex: Nizampet, Hyderabad" \
+  --monitor --interval 2 \
+  --baseline \
+  --state-db ./artifacts/state.db \
+  --heartbeat-minutes 10 \
+  --trace --artifacts-dir ./artifacts
