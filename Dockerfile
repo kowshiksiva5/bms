@@ -7,7 +7,7 @@ ENV CHROME_BINARY=/usr/bin/google-chrome
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY scraper.py app.py .
+COPY scraper.py app.py /app/
 ENV TELEGRAM_BOT_TOKEN=""
 ENV TELEGRAM_CHAT_ID=""
 CMD ["python", "app.py", "--help"]
