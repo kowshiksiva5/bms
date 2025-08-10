@@ -13,6 +13,8 @@ from store import (
 from bot.keyboards import kb_main, kb_date_picker, kb_theatre_picker, kb_interval_picker, kb_duration_picker
 from bot.telegram_api import send_text, answer_cbq, get_updates
 from bot.commands import ensure_bot_commands
+from utils import titled, movie_title_from_url
+
 
 ALLOWED = set([x.strip() for x in os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS","").split(",") if x.strip()])
 UPD_OFF = os.environ.get("BOT_OFFSET_FILE","./artifacts/bot_offset.txt")
@@ -63,14 +65,14 @@ def cmd_list(chat_id: str):
     if not rows:
         send_text(chat_id, "No monitors."); return
     for r in rows:
-        send_text(chat_id, _monitor_summary(r), reply_markup=kb_main(r["id"], r["state"]))
+        send_text(chat_id, titled(r, _monitor_summary(r)), reply_markup=kb_main(r["id"], r["state"]))
 
 def cmd_status(chat_id: str, mid: str):
     with connect() as conn:
         r = get_monitor(conn, mid)
     if not r:
         send_text(chat_id, f"Monitor {mid} not found."); return
-    send_text(chat_id, _monitor_summary(r), reply_markup=kb_main(mid, r["state"]))
+    send_text(chat_id, titled(r, _monitor_summary(r)), reply_markup=kb_main(mid, r["state"]))
 
 def cmd_new(chat_id: str, url: str):
     url = url.strip()
@@ -91,7 +93,7 @@ def cmd_new(chat_id: str, url: str):
     }
     with connect() as conn:
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, f"Step 1/5 — Select dates for new monitor (toggle then Save):",
+    send_text(chat_id, titled(url, "Step 1/5 — Select dates for new monitor (toggle then Save):"),
               reply_markup=kb_date_picker(sid, set(), 0, total_days=28, prefix="c"))
 
 def _build_theatre_keyboard_for_create(sid: str, selected: set, page: int):
@@ -112,7 +114,7 @@ def cb_cpick(chat_id: str, sid: str, d8: str):
         else: sel.add(d8)
         sess["dates"] = sorted(list(sel))
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, f"Step 1/5 — {len(sel)} date(s) selected. Save to continue.",
+    send_text(chat_id, titled(sess["url"], f"Step 1/5 — {len(sel)} date(s) selected. Save to continue."),
               reply_markup=kb_date_picker(sid, sel, sess.get("page_dates",0), total_days=28, prefix="c"))
 
 def cb_cpg(chat_id: str, sid: str, page: int):
@@ -121,7 +123,7 @@ def cb_cpg(chat_id: str, sid: str, page: int):
         sess["page_dates"] = max(0, int(page))
         set_ui_session(conn, chat_id, sid, sess)
         sel = set(sess.get("dates", []))
-    send_text(chat_id, "Page changed.",
+    send_text(chat_id, titled(sess["url"], "Page changed."),
               reply_markup=kb_date_picker(sid, sel, sess["page_dates"], total_days=28, prefix="c"))
 
 def cb_csave(chat_id: str, sid: str):
@@ -132,13 +134,16 @@ def cb_csave(chat_id: str, sid: str):
             send_text(chat_id, "Pick at least 1 date."); return
         sess["page_theatres"] = 0
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 2/5 — Select theatres (toggle then Save):",
+    send_text(chat_id, titled(sess["url"], "Step 2/5 — Select theatres (toggle then Save):"),
               reply_markup=_build_theatre_keyboard_for_create(sid, set(sess.get("theatres", [])), 0))
 
 def cb_ccancel(chat_id: str, sid: str):
     with connect() as conn:
+        sess = get_ui_session(conn, chat_id, sid)
+        url = (sess or {}).get("url","")
         clear_ui_session(conn, chat_id, sid)
-    send_text(chat_id, "Creation canceled.")
+    text = "Creation canceled."
+    send_text(chat_id, titled(url, text) if url else text)
 
 # theatres
 def cb_ctpick(chat_id: str, sid: str, idx: int):
@@ -154,7 +159,7 @@ def cb_ctpick(chat_id: str, sid: str, idx: int):
         sess["theatres"] = sorted(list(sel))
         set_ui_session(conn, chat_id, sid, sess)
         page = int(sess.get("page_theatres",0))
-    send_text(chat_id, f"Step 2/5 — {len(sel)} theatre(s) selected.",
+    send_text(chat_id, titled(sess["url"], f"Step 2/5 — {len(sel)} theatre(s) selected."),
               reply_markup=_build_theatre_keyboard_for_create(sid, sel, page))
 
 def cb_ctpg(chat_id: str, sid: str, page: int):
@@ -163,7 +168,7 @@ def cb_ctpg(chat_id: str, sid: str, page: int):
         sess["page_theatres"] = max(0, int(page))
         set_ui_session(conn, chat_id, sid, sess)
         sel = set(sess.get("theatres", []))
-    send_text(chat_id, "Page changed.",
+    send_text(chat_id, titled(sess["url"], "Page changed."),
               reply_markup=_build_theatre_keyboard_for_create(sid, sel, sess["page_theatres"]))
 
 def cb_cany(chat_id: str, sid: str):
@@ -171,7 +176,7 @@ def cb_cany(chat_id: str, sid: str):
         sess = get_ui_session(conn, chat_id, sid)
         sess["theatres"] = ["any"]
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 2/5 — Selected: any (all theatres).",
+    send_text(chat_id, titled(sess["url"], "Step 2/5 — Selected: any (all theatres)."),
               reply_markup=_build_theatre_keyboard_for_create(sid, set(sess["theatres"]), sess.get("page_theatres",0)))
 
 def cb_call(chat_id: str, sid: str):
@@ -179,7 +184,7 @@ def cb_call(chat_id: str, sid: str):
         sess = get_ui_session(conn, chat_id, sid)
         sess["theatres"] = list(DEFAULT_THEATRES)
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 2/5 — All defaults selected.",
+    send_text(chat_id, titled(sess["url"], "Step 2/5 — All defaults selected."),
               reply_markup=_build_theatre_keyboard_for_create(sid, set(sess["theatres"]), sess.get("page_theatres",0)))
 
 def cb_cclear(chat_id: str, sid: str):
@@ -187,7 +192,7 @@ def cb_cclear(chat_id: str, sid: str):
         sess = get_ui_session(conn, chat_id, sid)
         sess["theatres"] = []
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 2/5 — Cleared selection.",
+    send_text(chat_id, titled(sess["url"], "Step 2/5 — Cleared selection."),
               reply_markup=_build_theatre_keyboard_for_create(sid, set(), sess.get("page_theatres",0)))
 
 def cb_ctsave(chat_id: str, sid: str):
@@ -197,7 +202,8 @@ def cb_ctsave(chat_id: str, sid: str):
         if not sel:
             send_text(chat_id, "Pick at least 1 theatre, or choose 'Use Any'."); return
         cur = int(sess.get("interval", 5))
-    send_text(chat_id, "Step 3/5 — Select interval (minutes):", reply_markup=kb_interval_picker(sid, cur))
+    send_text(chat_id, titled(sess["url"], "Step 3/5 — Select interval (minutes):"),
+              reply_markup=kb_interval_picker(sid, cur))
 
 def cb_ctcancel(chat_id: str, sid: str):
     cb_ccancel(chat_id, sid)
@@ -208,32 +214,34 @@ def cb_ivalset(chat_id: str, sid: str, minutes: int):
         sess = get_ui_session(conn, chat_id, sid)
         sess["interval"] = int(minutes)
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, f"Step 3/5 — Interval set to {minutes}m.", reply_markup=kb_interval_picker(sid, int(minutes)))
+    send_text(chat_id, titled(sess["url"], f"Step 3/5 — Interval set to {minutes}m."),
+              reply_markup=kb_interval_picker(sid, int(minutes)))
 
 def cb_ivalback(chat_id: str, sid: str):
     with connect() as conn:
         sess = get_ui_session(conn, chat_id, sid)
         sel = set(sess.get("theatres", []))
-    send_text(chat_id, "Step 2/5 — Select theatres:",
+    send_text(chat_id, titled(sess["url"], "Step 2/5 — Select theatres:"),
               reply_markup=_build_theatre_keyboard_for_create(sid, sel, sess.get("page_theatres",0)))
 
 def cb_idurnext(chat_id: str, sid: str):
     with connect() as conn:
         sess = get_ui_session(conn, chat_id, sid)
-    send_text(chat_id, "Step 4/5 — Duration mode:",
+    send_text(chat_id, titled(sess["url"], "Step 4/5 — Duration mode:"),
               reply_markup=kb_duration_picker(sid, sess.get("dur_mode","FIXED"), int(sess.get("dur_rolling",7)), sess.get("dur_until")))
 
 def cb_idurback(chat_id: str, sid: str):
     with connect() as conn:
         sess = get_ui_session(conn, chat_id, sid)
-    send_text(chat_id, "Step 3/5 — Select interval (minutes):", reply_markup=kb_interval_picker(sid, int(sess.get("interval",5))))
+    send_text(chat_id, titled(sess["url"], "Step 3/5 — Select interval (minutes):"),
+              reply_markup=kb_interval_picker(sid, int(sess.get("interval",5))))
 
 def cb_dur(chat_id: str, sid: str, mode: str):
     with connect() as conn:
         sess = get_ui_session(conn, chat_id, sid)
         sess["dur_mode"] = mode
         set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 4/5 — Duration mode:",
+    send_text(chat_id, titled(sess["url"], "Step 4/5 — Duration mode:"),
               reply_markup=kb_duration_picker(sid, mode, int(sess.get("dur_rolling",7)), sess.get("dur_until")))
 
 def cb_rplus(chat_id: str, sid: str):
@@ -241,14 +249,16 @@ def cb_rplus(chat_id: str, sid: str):
         sess = get_ui_session(conn, chat_id, sid)
         r = int(sess.get("dur_rolling",7)); r = min(30, r+1); sess["dur_rolling"]=r
         sess["dur_mode"]="ROLLING"; set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 4/5 — Duration mode:", reply_markup=kb_duration_picker(sid, "ROLLING", r, sess.get("dur_until")))
+    send_text(chat_id, titled(sess["url"], "Step 4/5 — Duration mode:"),
+              reply_markup=kb_duration_picker(sid, "ROLLING", r, sess.get("dur_until")))
 
 def cb_rminus(chat_id: str, sid: str):
     with connect() as conn:
         sess = get_ui_session(conn, chat_id, sid)
         r = int(sess.get("dur_rolling",7)); r = max(1, r-1); sess["dur_rolling"]=r
         sess["dur_mode"]="ROLLING"; set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 4/5 — Duration mode:", reply_markup=kb_duration_picker(sid, "ROLLING", r, sess.get("dur_until")))
+    send_text(chat_id, titled(sess["url"], "Step 4/5 — Duration mode:"),
+              reply_markup=kb_duration_picker(sid, "ROLLING", r, sess.get("dur_until")))
 
 # UNTIL date picker
 def cb_uopen(chat_id: str, sid: str, page: int):
@@ -256,7 +266,8 @@ def cb_uopen(chat_id: str, sid: str, page: int):
         sess=get_ui_session(conn, chat_id, sid)
         cur = set([sess["dur_until"]]) if sess.get("dur_until") else set()
     from bot.keyboards import kb_date_picker
-    send_text(chat_id, "Pick an end date (Save sets mode=UNTIL):", reply_markup=kb_date_picker(sid, cur, int(page), total_days=60, prefix="u"))
+    send_text(chat_id, titled(sess["url"], "Pick an end date (Save sets mode=UNTIL):"),
+              reply_markup=kb_date_picker(sid, cur, int(page), total_days=60, prefix="u"))
 
 def cb_upick(chat_id: str, sid: str, d8: str):
     with connect() as conn:
@@ -265,7 +276,8 @@ def cb_upick(chat_id: str, sid: str, d8: str):
         set_ui_session(conn, chat_id, sid, sess)
     cur = set([sess["dur_until"]]) if sess.get("dur_until") else set()
     from bot.keyboards import kb_date_picker
-    send_text(chat_id, "Pick an end date (Save sets mode=UNTIL):", reply_markup=kb_date_picker(sid, cur, int(sess.get("page_until",0)), total_days=60, prefix="u"))
+    send_text(chat_id, titled(sess["url"], "Pick an end date (Save sets mode=UNTIL):"),
+              reply_markup=kb_date_picker(sid, cur, int(sess.get("page_until",0)), total_days=60, prefix="u"))
 
 def cb_upg(chat_id: str, sid: str, page: int):
     with connect() as conn:
@@ -274,7 +286,8 @@ def cb_upg(chat_id: str, sid: str, page: int):
         set_ui_session(conn, chat_id, sid, sess)
     cur = set([sess["dur_until"]]) if sess.get("dur_until") else set()
     from bot.keyboards import kb_date_picker
-    send_text(chat_id, "Pick an end date (Save sets mode=UNTIL):", reply_markup=kb_date_picker(sid, cur, int(page), total_days=60, prefix="u"))
+    send_text(chat_id, titled(sess["url"], "Pick an end date (Save sets mode=UNTIL):"),
+              reply_markup=kb_date_picker(sid, cur, int(page), total_days=60, prefix="u"))
 
 def cb_usave(chat_id: str, sid: str):
     with connect() as conn:
@@ -282,7 +295,8 @@ def cb_usave(chat_id: str, sid: str):
         if not sess.get("dur_until"):
             send_text(chat_id, "Please pick an end date."); return
         sess["dur_mode"]="UNTIL"; set_ui_session(conn, chat_id, sid, sess)
-    send_text(chat_id, "Step 4/5 — Duration mode:", reply_markup=kb_duration_picker(sid, "UNTIL", int(sess.get("dur_rolling",7)), sess.get("dur_until")))
+    send_text(chat_id, titled(sess["url"], "Step 4/5 — Duration mode:"), 
+              reply_markup=kb_duration_picker(sid, "UNTIL", int(sess.get("dur_rolling",7)), sess.get("dur_until")))
 
 def cb_ucancel(chat_id: str, sid: str):
     cb_idurnext(chat_id, sid)
@@ -325,23 +339,29 @@ def cb_cfinish(chat_id: str, sid: str, mode: str):
         "To start the worker (if not already running):",
         cmd
     ]
-    send_text(chat_id, "\n".join(msg))
+    send_text(chat_id, titled(url, "\n".join(msg)))
 
 def cmd_pause(chat_id: str, mid: str):   _ack_state(chat_id, mid, "PAUSED", "Paused")
 def cmd_resume(chat_id: str, mid: str):  _ack_state(chat_id, mid, "RUNNING", "Resumed")
 def cmd_stop(chat_id: str, mid: str):    _ack_state(chat_id, mid, "STOPPING", "Stopping now")
 def cmd_restart(chat_id: str, mid: str):
     with connect() as conn:
+        r = get_monitor(conn, mid)
         ok = set_reload(conn, mid)
-    send_text(chat_id, f"[{mid}] {'Restarting driver…' if ok else 'Not found'}")
+    text = f"[{mid}] {'Restarting driver…' if ok else 'Not found'}"
+    send_text(chat_id, titled(r, text) if r else text)
 def cmd_discover(chat_id: str, mid: str):
     with connect() as conn:
+        r = get_monitor(conn, mid)
         ok = set_state(conn, mid, "DISCOVER")
-    send_text(chat_id, f"[{mid}] {'Discovering theatre list…' if ok else 'Not found'}\n(Worker will run discovery and then pause.)")
+    text = f"[{mid}] {'Discovering theatre list…' if ok else 'Not found'}\n(Worker will run discovery and then pause.)"
+    send_text(chat_id, titled(r, text) if r else text)
 def _ack_state(chat_id: str, mid: str, new_state: str, msg: str):
     with connect() as conn:
+        r = get_monitor(conn, mid)
         ok = set_state(conn, mid, new_state)
-    send_text(chat_id, f"[{mid}] {msg if ok else 'Not found'}")
+    text = f"[{mid}] {msg if ok else 'Not found'}"
+    send_text(chat_id, titled(r, text) if r else text)
 def cmd_setinterval(chat_id: str, mid: str, val: str):
     try:
         n = int(val)
@@ -349,20 +369,26 @@ def cmd_setinterval(chat_id: str, mid: str, val: str):
     except Exception:
         send_text(chat_id, "Usage: /setinterval <id> <minutes>"); return
     with connect() as conn:
+        r = get_monitor(conn, mid)
         set_interval(conn, mid, n)
-    send_text(chat_id, f"[{mid}] Interval set to {n} min")
+    text = f"[{mid}] Interval set to {n} min"
+    send_text(chat_id, titled(r, text) if r else text)
 def cmd_timewin(chat_id: str, mid: str, arg: str):
     if arg.lower()=="clear":
         with connect() as conn:
+            r = get_monitor(conn, mid)
             set_time_window(conn, mid, None, None)
-        send_text(chat_id, f"[{mid}] Time window cleared"); return
+        text = f"[{mid}] Time window cleared"
+        send_text(chat_id, titled(r, text) if r else text); return
     m = re.match(r"^\s*(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})\s*$", arg)
     if not m:
         send_text(chat_id, "Usage: /timewin <id> HH:MM-HH:MM or 'clear'"); return
     s,e = m.group(1), m.group(2)
     with connect() as conn:
+        r = get_monitor(conn, mid)
         set_time_window(conn, mid, s, e)
-    send_text(chat_id, f"[{mid}] Time window set: {s}–{e}")
+    text = f"[{mid}] Time window set: {s}–{e}"
+    send_text(chat_id, titled(r, text) if r else text)
 
 HELP = (
 "Commands:\n"

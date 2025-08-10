@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, re, time, json, traceback
 from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
+from utils import titled
 
 import requests
 
@@ -16,7 +17,9 @@ from scraper import set_trace as set_scr_trace, get_driver, open_and_prepare_res
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
 
+# ---------- Telegram ----------
 def tg_send(chat_id: str, text: str):
+    """Raw Telegram sender with fallback chat."""
     if not chat_id: chat_id = FALLBACK_CHAT
     if not chat_id or not BOT_TOKEN:
         print("[telegram] skipped (no chat or token)")
@@ -24,11 +27,12 @@ def tg_send(chat_id: str, text: str):
     api=f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     for chunk in [text[i:i+4000] for i in range(0,len(text),4000)] or [text]:
         try:
-            r=requests.post(api, data={"chat_id": chat_id,"text": chunk}, timeout=20)
+            r=requests.post(api, data={"chat_id": chat_id, "text": chunk}, timeout=20)
             if r.status_code>=300: print("[telegram] error:", r.status_code, r.text)
         except Exception as e:
             print("[telegram] exception:", e)
 
+# ---------- helpers ----------
 def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"
 def _now_i(): return int(time.time())
 
@@ -56,6 +60,55 @@ def _should_run_now(row)->bool:
     if not within_time_window(_now_i(), row["time_start"], row["time_end"]): return False
     return True
 
+def _deeplink(row: dict, d8: str) -> str:
+    """Try to build a buytickets deep link using ET code; fall back to date-injected URL."""
+    m = re.search(r"(ET\d{5,})", row["url"] or "")
+    if m:
+        et = m.group(1)
+        return f"https://in.bookmyshow.com/buytickets/{et}/{d8}"
+    return ensure_date_in_url(row["url"], d8)
+
+def _format_scope(row: dict) -> str:
+    try:
+        the = json.loads(row["theatres"]) if row.get("theatres") else []
+    except Exception:
+        the = []
+    return "any" if "any" in the or not the else f"{len(the)} theatres"
+
+def _format_new_shows(row: dict, found: List[Tuple[str,str,str]]) -> str:
+    """
+    found: list of (theatre_name, YYYYMMDD, '11:10 PM')
+    Nice, grouped message with counts + deep link.
+    """
+    # bucket by date, then theatre → times
+    by_date: Dict[str, Dict[str, List[str]]] = {}
+    total_times = 0
+    for nm, d8, t in found:
+        by_date.setdefault(d8, {}).setdefault(nm, []).append(t)
+        total_times += 1
+
+    # build rows
+    lines = []
+    for d8 in sorted(by_date.keys()):
+        lines.append(f"🗓 {_fmt_date(d8)}")
+        for nm in sorted(by_date[d8].keys()):
+            times = ", ".join(sorted(set(by_date[d8][nm])))
+            lines.append(f"  • 🏟 {nm}: {times}")
+        lines.append("")  # blank between dates
+
+    first_d8 = sorted(by_date.keys())[0]
+    link = _deeplink(row, first_d8)
+
+    header = (
+        f"🎟️ New shows\n"
+        f"🔎 Monitor: {row['id']} • every {row.get('interval_min','?')}m • Theatres: {_format_scope(row)}\n"
+        f"🔗 {link}\n"
+    )
+    summary = f"\nTotals: {total_times} time(s) • {sum(len(v) for v in by_date.values())} theatre entries • {len(by_date)} date(s)"
+    body = header + "\n".join(lines).rstrip() + summary
+    return titled(row, body)
+
+# ---------- selenium driver ----------
 class DriverManager:
     def __init__(self, debug: bool=False, trace: bool=False, artifacts_dir: str="./artifacts"):
         self.debug = debug
@@ -82,6 +135,7 @@ class DriverManager:
         d = self.ensure()
         return open_and_prepare_resilient(d, url, debug=self.debug)
 
+# ---------- actions ----------
 def _run_discover(dm: DriverManager, row):
     eff = _effective_dates(row) or roll_dates(1)
     date = eff[0]
@@ -93,7 +147,11 @@ def _run_discover(dm: DriverManager, row):
         for nm in names:
             upsert_indexed_theatre(conn, row["id"], date, nm)
         set_state(conn, row["id"], "PAUSED")
-    tg_send(str(row["owner_chat_id"] or ""), f"🧭 Discover complete for [{row['id']}]:\n{len(names)} theatres captured for {date}.\nState set to PAUSED.")
+    chat = str(row["owner_chat_id"] or "")
+    tg_send(chat, titled(row, f"🧭 Discover complete for [{row['id']}]\n"
+                              f"Captured {len(names)} theatres for {_fmt_date(date)}.\n"
+                              f"State set to PAUSED.\n"
+                              f"🔗 {_deeplink(row, date)}"))
 
 def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
     mid = row["id"]; chat=str(row["owner_chat_id"] or "")
@@ -101,7 +159,7 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
     if not eff_dates:
         if (row["mode"] or "FIXED").upper()=="UNTIL":
             with connect() as conn: set_state(conn, mid, "PAUSED")
-            tg_send(chat, f"⏸️ [{mid}] end date reached; auto-paused.")
+            tg_send(chat, titled(row, f"⏸️ [{mid}] End date reached; auto-paused."))
         return
 
     # one-time baseline
@@ -116,18 +174,21 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
                         with connect() as conn:
                             bulk_upsert_seen(conn, [(mid, d8, name, st, _now_i()) for st in shows])
             with connect() as conn: set_baseline_done(conn, mid)
-            tg_send(chat, f"📏 Baseline captured for [{mid}]. Alerts will fire only on newly added showtimes.")
+            tg_send(chat, titled(row, f"📏 Baseline captured for [{mid}] — alerts will fire only on newly added showtimes."))
         except Exception as e:
-            tg_send(chat, f"⚠️ Baseline failed for [{mid}]: {e}")
+            tg_send(chat, titled(row, f"⚠️ Baseline failed for [{mid}]: {e}"))
 
-    found:list[Tuple[str,str,str]] = []
+    found: List[Tuple[str,str,str]] = []
     try:
         for d8 in eff_dates:
             turl = ensure_date_in_url(row["url"], d8)
             d = dm.open(turl)
             try:
-                for _ in range(2): d.execute_script("window.scrollTo(0, document.body.scrollHeight);"); time.sleep(0.5)
-            except Exception: pass
+                for _ in range(2):
+                    d.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(0.5)
+            except Exception:
+                pass
             pairs = parse_theatres(d)
             with connect() as conn:
                 for nm,_ in pairs: upsert_indexed_theatre(conn, mid, d8, nm)
@@ -143,11 +204,11 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
         raise
 
     if found:
-        body = "\n".join([f"{n} | {_fmt_date(d)} | {t}" for n,d,t in sorted(found)])
-        tg_send(chat, f"🎟️ New shows for [{mid}]:\n{body}")
+        tg_send(chat, _format_new_shows(row, found))
         with connect() as conn:
             bulk_upsert_seen(conn, [(mid, d, n, t, _now_i()) for n,d,t in found])
-            conn.execute("UPDATE monitors SET last_alert_ts=?, updated_at=? WHERE id=?", (_now_i(), _now_i(), mid)); conn.commit()
+            conn.execute("UPDATE monitors SET last_alert_ts=?, updated_at=? WHERE id=?", (_now_i(), _now_i(), mid))
+            conn.commit()
 
 def _send_heartbeat_if_due(row, heartbeat_book: Dict[str,int]):
     """Send heartbeat independently of scraping, so you always get a health ping."""
@@ -161,14 +222,42 @@ def _send_heartbeat_if_due(row, heartbeat_book: Dict[str,int]):
     if row["last_run_ts"] and row["interval_min"]:
         eta = int(row["last_run_ts"]) + int(row["interval_min"])*60 - now
         eta = max(0, eta)
+    link = _deeplink(row, (_effective_dates(row) or roll_dates(1))[0])
     msg = (
         f"💓 Heartbeat [{mid}]\n"
-        f"State: {row['state']}\n"
-        f"Interval: {row['interval_min']}m\n"
-        f"Next run in ~ {eta//60}m {eta%60}s"
+        f"State: {row['state']} • every {row['interval_min']}m • Theatres: {_format_scope(row)}\n"
+        f"Next run in ~ {eta//60}m {eta%60}s\n"
+        f"🔗 {link}"
     )
-    tg_send(chat, msg)
+    tg_send(chat, titled(row, msg))
     heartbeat_book[mid] = now
+
+# ---------- main loop ----------
+class DriverManager:
+    def __init__(self, debug: bool=False, trace: bool=False, artifacts_dir: str="./artifacts"):
+        self.debug = debug
+        self.trace = trace
+        self.artifacts_dir = artifacts_dir
+        self.d = None
+        set_scr_trace(trace, artifacts_dir)
+
+    def ensure(self):
+        if self.d: return self.d
+        self.d = get_driver(debug=self.debug)
+        if not self.d:
+            raise RuntimeError("Failed to start Chrome driver")
+        return self.d
+
+    def reset(self):
+        try:
+            if self.d: self.d.quit()
+        except Exception:
+            pass
+        self.d = None
+
+    def open(self, url: str):
+        d = self.ensure()
+        return open_and_prepare_resilient(d, url, debug=self.debug)
 
 def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=10):
     dm = DriverManager(debug=debug, trace=trace, artifacts_dir=artifacts_dir)
@@ -193,7 +282,7 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=1
                     if r["state"] == "STOPPING":
                         with connect() as conn:
                             set_state(conn, r["id"], "STOPPED")
-                        tg_send(str(r["owner_chat_id"] or ""), f"⏹️ [{r['id']}] stopped.")
+                        tg_send(str(r["owner_chat_id"] or ""), titled(r, f"⏹️ [{r['id']}] Stopped."))
                         continue
 
                     if not _should_run_now(r):
@@ -209,8 +298,7 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=1
                         else:
                             _run_monitor(dm, r, heartbeat_book)
                 except Exception as e:
-                    tb = traceback.format_exc()[-1200:]
-                    tg_send(str(r["owner_chat_id"] or ""), f"⚠️ Error on [{r['id']}] : {e}")
+                    tg_send(str(r["owner_chat_id"] or ""), titled(r, f"⚠️ Error on [{r['id']}]: {e}"))
                     print("monitor error:", e)
         except Exception as outer:
             print("scheduler loop error:", outer)
