@@ -122,7 +122,7 @@ def _recover_blank_or_oops(driver, url: str):
 
 # ---------- Driver factory ----------
 def get_driver(debug: bool = False):
-    """Try Selenium first (unless BMS_FORCE_UC=1), then undetected-chromedriver (pinned)."""
+    """Try Selenium first (unless BMS_FORCE_UC=1), then undetected-chromedriver (pinned if version known)."""
     def build_args():
         args = []
         if not debug: args.append("--headless=new")
@@ -212,26 +212,38 @@ def _parse_venues_from_json(html: str) -> List[Tuple[str, List[str]]]:
     theatres: List[Tuple[str, List[str]]] = []
     anchor = '"type":"venue-card"'
     i = 0
+    n = len(html)
     while True:
         i = html.find(anchor, i)
         if i == -1:
             break
+        # walk backwards to the beginning of this JSON object
         start = html.rfind("{", 0, i)
         if start == -1:
             i += len(anchor); continue
-        depth = 0; j = start; in_str = False; esc = False
-        while j < len(html):
+        # scan forward to find the matching closing brace, honoring strings/escapes
+        depth = 0
+        j = start
+        in_str = False
+        esc = False
+        while j < n:
             ch = html[j]
             if in_str:
-                if esc: esc = False
-                elif ch == "\\": esc = True
-                elif ch == '"': in_str = False
+                if esc:
+                    esc = False
+                elif ch == "\\":          # <— THIS is the previously broken line
+                    esc = True
+                elif ch == '"':
+                    in_str = False
             else:
-                if ch == '"': in_str = True
-                elif ch == "{": depth += 1
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
                 elif ch == "}":
                     depth -= 1
-                    if depth == 0: break
+                    if depth == 0:
+                        break
             j += 1
         if depth != 0:
             i += len(anchor); continue
@@ -271,12 +283,12 @@ def _parse_venues_from_dom(html: str) -> List[Tuple[str, List[str]]]:
             theatres.append((name, times_full))
     # dedupe by name
     out: dict[str, List[str]] = {}
-    for n, ts in theatres:
-        out.setdefault(n, [])
+    for n_, ts in theatres:
+        out.setdefault(n_, [])
         for t in ts:
-            if t not in out[n]:
-                out[n].append(t)
-    return [(n, out[n]) for n in out]
+            if t not in out[n_]:
+                out[n_].append(t)
+    return [(n_, out[n_]) for n_ in out]
 
 def parse_theatres(driver) -> List[Tuple[str, List[str]]]:
     html = driver.page_source or ""

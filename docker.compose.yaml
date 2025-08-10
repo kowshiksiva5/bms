@@ -1,0 +1,33 @@
+services:
+  bot:
+    image: bms-rev2:latest
+    container_name: bms-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Kolkata
+      BMS_FORCE_UC: "1"
+    volumes:
+      - /var/lib/bms/artifacts:/app/artifacts
+    shm_size: "1gb"
+    command: python -m bot.bot
+
+  # duplicate this service per monitor (one worker == one monitor)
+  worker-sample:
+    image: bms-rev2:latest
+    container_name: bms-worker-sample
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Kolkata
+      BMS_FORCE_UC: "1"
+    volumes:
+      - /var/lib/bms/artifacts:/app/artifacts
+    shm_size: "1gb"
+    # replace MONITOR_ID after you create it via /new in Telegram
+    command: >
+      python worker.py
+      --monitor-id MONITOR_ID
+      --monitor
+      --trace
+      --artifacts-dir ./artifacts
