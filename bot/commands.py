@@ -13,6 +13,10 @@ COMMANDS=[
     {"command":"discover","description":"Discover theatres (/discover <id>)"},
     {"command":"setinterval","description":"Set interval (/setinterval <id> <m>)"},
     {"command":"timewin","description":"Limit HH:MM-HH:MM or clear (/timewin <id> <win>)"},
+    {"command":"health","description":"Show system health"},
+    {"command":"import","description":"Import monitor from JSON (/import <json>)"},
+    {"command":"snooze","description":"Snooze monitor (/snooze <id> <2h|6h|clear>)"},
+    {"command":"delete","description":"Delete monitor (/delete <id>)"},
     {"command":"help","description":"Help"},
 ]
 def ensure_bot_commands(scope="all_private_chats"):

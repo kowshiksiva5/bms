@@ -11,10 +11,12 @@ def kb_main(mid: str, state: str)->Dict:
          {"text":"Stop","callback_data":f"stop|{mid}"}],
         [{"text":"Snooze 2h","callback_data":f"snooze|{mid}|2h"},
          {"text":"Snooze 6h","callback_data":f"snooze|{mid}|6h"},
-         {"text":"Restart driver","callback_data":f"restart|{mid}"}],
+         {"text":"Clear snooze","callback_data":f"snooze|{mid}|clear"}],
         [{"text":"Edit dates","callback_data":f"edit_dates|{mid}"},
          {"text":"Edit theatres","callback_data":f"edit_theatres|{mid}"},
-         {"text":"Discover","callback_data":f"discover|{mid}"}],
+         {"text":"Restart driver","callback_data":f"restart|{mid}"}],
+        [{"text":"Discover","callback_data":f"discover|{mid}"},
+         {"text":"Delete","callback_data":f"delete|{mid}"}],
     ]}
 
 def _fmt(d: datetime)->str: return d.strftime("%Y-%m-%d")
@@ -84,7 +86,17 @@ def kb_duration_picker(sid: str, mode:str, rolling:int=7, end_d8:str|None=None)-
     ]
     row4=[
         {"text":"Back","callback_data":f"idurback|{sid}"},
+        {"text":"Next: Heartbeat →","callback_data":f"idur2hb|{sid}"},
+    ]
+    return {"inline_keyboard":[row1,row2,row3,row4]}
+
+def kb_heartbeat_picker(sid: str, current:int=180)->Dict:
+    choices=[30,60,120,180,360]
+    row=[{"text":("• "+str(m)+"m" if m==current else str(m)+"m"),
+          "callback_data":f"hbset|{sid}|{m}"} for m in choices]
+    row2=[
+        {"text":"Back","callback_data":f"hbback|{sid}"},
         {"text":"Finish: Create & Start","callback_data":f"cfinish|{sid}|start"},
         {"text":"Finish: Create Paused","callback_data":f"cfinish|{sid}|pause"},
     ]
-    return {"inline_keyboard":[row1,row2,row3,row4]}
+    return {"inline_keyboard":[row,row2]}

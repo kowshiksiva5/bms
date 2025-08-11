@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import os, time, json, sqlite3
+from config import STATE_DB as _STATE_DB
 from typing import List, Optional
 
-STATE_DB = os.environ.get("STATE_DB", "./artifacts/state.db")
+STATE_DB = _STATE_DB
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -118,6 +119,13 @@ def set_mode(conn, mid, mode, rolling_days=0, end_date=None):
     cur=conn.execute("UPDATE monitors SET mode=?, rolling_days=?, end_date=?, updated_at=? WHERE id=?", 
                      (mode, int(rolling_days or 0), end_date, int(time.time()), mid)); conn.commit(); return cur.rowcount>0
 
+# Snooze helpers
+def set_snooze(conn, mid: str, until_ts: int):
+    cur=conn.execute("UPDATE monitors SET snooze_until=?, updated_at=? WHERE id=?", (int(until_ts), int(time.time()), mid)); conn.commit(); return cur.rowcount>0
+
+def clear_snooze(conn, mid: str):
+    cur=conn.execute("UPDATE monitors SET snooze_until=NULL, updated_at=? WHERE id=?", (int(time.time()), mid)); conn.commit(); return cur.rowcount>0
+
 def get_indexed_theatres(conn, mid) -> List[str]:
     rows = conn.execute("SELECT DISTINCT theatre FROM theatres_index WHERE monitor_id=? ORDER BY theatre COLLATE NOCASE", (mid,)).fetchall()
     return [r["theatre"] for r in rows]
@@ -177,5 +185,15 @@ def is_seen(conn, monitor_id: str, date: str, theatre: str, time_: str) -> bool:
 
 def set_baseline_done(conn, mid: str):
     cur=conn.execute("UPDATE monitors SET baseline=0, updated_at=? WHERE id=?", (int(time.time()), mid))
+    conn.commit()
+    return cur.rowcount>0
+
+# Deletion
+def delete_monitor(conn, mid: str):
+    conn.execute("DELETE FROM seen WHERE monitor_id=?", (mid,))
+    conn.execute("DELETE FROM theatres_index WHERE monitor_id=?", (mid,))
+    conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (mid,))
+    conn.execute("DELETE FROM runs WHERE monitor_id=?", (mid,))
+    cur=conn.execute("DELETE FROM monitors WHERE id=?", (mid,))
     conn.commit()
     return cur.rowcount>0

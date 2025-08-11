@@ -4,33 +4,21 @@ import os, re, time, json, traceback
 from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
 from utils import titled
+from config import SCHEDULER_SLEEP_SEC as _SLEEP
 
-import requests
+from bot.telegram_api import send_text, send_alert
+from services.monitor_service import report_error, format_new_shows, build_new_shows_keyboard
 
 from store import (
     connect, get_active_monitors, get_monitor, set_state, set_reload, set_dates,
     get_indexed_theatres, upsert_indexed_theatre, bulk_upsert_seen, is_seen, set_baseline_done
 )
 from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_time_window
-from scraper import set_trace as set_scr_trace, get_driver, open_and_prepare_resilient, parse_theatres
+from scraper import get_driver, set_trace as set_scr_trace, parse_theatres
+from services.driver_manager import DriverManager
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
-
-# ---------- Telegram ----------
-def tg_send(chat_id: str, text: str):
-    """Raw Telegram sender with fallback chat."""
-    if not chat_id: chat_id = FALLBACK_CHAT
-    if not chat_id or not BOT_TOKEN:
-        print("[telegram] skipped (no chat or token)")
-        return
-    api=f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    for chunk in [text[i:i+4000] for i in range(0,len(text),4000)] or [text]:
-        try:
-            r=requests.post(api, data={"chat_id": chat_id, "text": chunk}, timeout=20)
-            if r.status_code>=300: print("[telegram] error:", r.status_code, r.text)
-        except Exception as e:
-            print("[telegram] exception:", e)
 
 # ---------- helpers ----------
 def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"
@@ -108,32 +96,7 @@ def _format_new_shows(row: dict, found: List[Tuple[str,str,str]]) -> str:
     body = header + "\n".join(lines).rstrip() + summary
     return titled(row, body)
 
-# ---------- selenium driver ----------
-class DriverManager:
-    def __init__(self, debug: bool=False, trace: bool=False, artifacts_dir: str="./artifacts"):
-        self.debug = debug
-        self.trace = trace
-        self.artifacts_dir = artifacts_dir
-        self.d = None
-        set_scr_trace(trace, artifacts_dir)
-
-    def ensure(self):
-        if self.d: return self.d
-        self.d = get_driver(debug=self.debug)
-        if not self.d:
-            raise RuntimeError("Failed to start Chrome driver")
-        return self.d
-
-    def reset(self):
-        try:
-            if self.d: self.d.quit()
-        except Exception:
-            pass
-        self.d = None
-
-    def open(self, url: str):
-        d = self.ensure()
-        return open_and_prepare_resilient(d, url, debug=self.debug)
+# driver moved to services.driver_manager
 
 # ---------- actions ----------
 def _run_discover(dm: DriverManager, row):
@@ -148,10 +111,12 @@ def _run_discover(dm: DriverManager, row):
             upsert_indexed_theatre(conn, row["id"], date, nm)
         set_state(conn, row["id"], "PAUSED")
     chat = str(row["owner_chat_id"] or "")
-    tg_send(chat, titled(row, f"🧭 Discover complete for [{row['id']}]\n"
-                              f"Captured {len(names)} theatres for {_fmt_date(date)}.\n"
-                              f"State set to PAUSED.\n"
-                              f"🔗 {_deeplink(row, date)}"))
+    send_alert(row, chat, (
+        f"🧭 Discover complete for [{row['id']}]\n"
+        f"Captured {len(names)} theatres for {_fmt_date(date)}.\n"
+        f"State set to PAUSED.\n"
+        f"🔗 {_deeplink(row, date)}"
+    ))
 
 def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
     mid = row["id"]; chat=str(row["owner_chat_id"] or "")
@@ -159,7 +124,7 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
     if not eff_dates:
         if (row["mode"] or "FIXED").upper()=="UNTIL":
             with connect() as conn: set_state(conn, mid, "PAUSED")
-            tg_send(chat, titled(row, f"⏸️ [{mid}] End date reached; auto-paused."))
+            send_alert(row, chat, f"⏸️ [{mid}] End date reached; auto-paused.")
         return
 
     # one-time baseline
@@ -174,9 +139,9 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
                         with connect() as conn:
                             bulk_upsert_seen(conn, [(mid, d8, name, st, _now_i()) for st in shows])
             with connect() as conn: set_baseline_done(conn, mid)
-            tg_send(chat, titled(row, f"📏 Baseline captured for [{mid}] — alerts will fire only on newly added showtimes."))
+            send_alert(row, chat, f"📏 Baseline captured for [{mid}] — alerts will fire only on newly added showtimes.")
         except Exception as e:
-            tg_send(chat, titled(row, f"⚠️ Baseline failed for [{mid}]: {e}"))
+            send_alert(row, chat, f"⚠️ Baseline failed for [{mid}]: {e}")
 
     found: List[Tuple[str,str,str]] = []
     try:
@@ -204,7 +169,9 @@ def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
         raise
 
     if found:
-        tg_send(chat, _format_new_shows(row, found))
+        msg = format_new_shows(row, found)
+        kb = build_new_shows_keyboard(row, found)
+        send_text(chat, msg, reply_markup=kb or None)
         with connect() as conn:
             bulk_upsert_seen(conn, [(mid, d, n, t, _now_i()) for n,d,t in found])
             conn.execute("UPDATE monitors SET last_alert_ts=?, updated_at=? WHERE id=?", (_now_i(), _now_i(), mid))
@@ -229,37 +196,12 @@ def _send_heartbeat_if_due(row, heartbeat_book: Dict[str,int]):
         f"Next run in ~ {eta//60}m {eta%60}s\n"
         f"🔗 {link}"
     )
-    tg_send(chat, titled(row, msg))
+    send_alert(row, chat, msg)
     heartbeat_book[mid] = now
 
 # ---------- main loop ----------
-class DriverManager:
-    def __init__(self, debug: bool=False, trace: bool=False, artifacts_dir: str="./artifacts"):
-        self.debug = debug
-        self.trace = trace
-        self.artifacts_dir = artifacts_dir
-        self.d = None
-        set_scr_trace(trace, artifacts_dir)
 
-    def ensure(self):
-        if self.d: return self.d
-        self.d = get_driver(debug=self.debug)
-        if not self.d:
-            raise RuntimeError("Failed to start Chrome driver")
-        return self.d
-
-    def reset(self):
-        try:
-            if self.d: self.d.quit()
-        except Exception:
-            pass
-        self.d = None
-
-    def open(self, url: str):
-        d = self.ensure()
-        return open_and_prepare_resilient(d, url, debug=self.debug)
-
-def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=10):
+def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=None):
     dm = DriverManager(debug=debug, trace=trace, artifacts_dir=artifacts_dir)
     heartbeat_book: Dict[str,int] = {}
 
@@ -282,7 +224,7 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=1
                     if r["state"] == "STOPPING":
                         with connect() as conn:
                             set_state(conn, r["id"], "STOPPED")
-                        tg_send(str(r["owner_chat_id"] or ""), titled(r, f"⏹️ [{r['id']}] Stopped."))
+                        send_alert(r, str(r["owner_chat_id"] or ""), f"⏹️ [{r['id']}] Stopped.")
                         continue
 
                     if not _should_run_now(r):
@@ -298,12 +240,12 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=1
                         else:
                             _run_monitor(dm, r, heartbeat_book)
                 except Exception as e:
-                    tg_send(str(r["owner_chat_id"] or ""), titled(r, f"⚠️ Error on [{r['id']}]: {e}"))
                     print("monitor error:", e)
+                    report_error(r, e)
         except Exception as outer:
             print("scheduler loop error:", outer)
             time.sleep(3)
-        time.sleep(sleep_sec)
+        time.sleep(int(sleep_sec or _SLEEP))
 
 def parse_args(argv=None):
     import argparse

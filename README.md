@@ -46,6 +46,52 @@ Get instant Telegram alerts when new showtimes appear on BookMyShow for the movi
 ```
 
 * **bot**: interactive Telegram bot; stores/edits monitor configs; exposes slash commands and inline keyboards.
+
+## Local scripts
+
+Environment variables
+
+1) Create a `.env` from `.env.example` and fill values.
+2) For local shell usage, you can also `source scripts/env.sh` (optional). Scripts will try to load `.env` automatically when using Docker compose.
+
+```
+# View SQLite DB summary
+scripts/db_view.sh [--monitors]
+
+# Clear DB and artifacts (destructive)
+scripts/db_clear.sh --yes
+
+# Run locally (choose one)
+scripts/run_local.sh bot
+scripts/run_local.sh scheduler
+scripts/run_local.sh worker --monitor-id <MID>
+scripts/run_local.sh onepass <URL or args>
+
+# Docker lifecycle
+scripts/docker_up.sh      # build+up
+scripts/docker_down.sh    # down
+scripts/docker_reset.sh   # rm containers, rebuild image, up
+```
+
+## Multi-chat behavior
+
+- The bot is multi-tenant. Each monitor is tied to the chat that created it via `owner_chat_id`.
+- Alerts, heartbeats, and error messages are delivered only to that chat. They will not appear in other chats by default.
+- To allow any chat to use the bot, set `TELEGRAM_ALLOWED_CHAT_IDS` empty in `.env`. To restrict, list comma-separated chat IDs.
+
+## Scraping scope (city vs URL)
+
+- Scraping is driven entirely by the URL you provide (the BookMyShow buytickets link). If the URL targets a specific city/movie page, the scraper operates on that page’s content.
+- The system injects the selected date(s) into that URL but does not change the city; choose the correct URL for your target city.
+
+## Configuration quick start
+
+1) Copy `.env.example` to `.env` and fill values (bot token, allowed chat IDs, etc.)
+2) Run locally:
+   - `scripts/run_local.sh bot`
+   - `scripts/run_local.sh scheduler`
+3) Or with Docker: `scripts/docker_up.sh`
+
 * **scheduler/worker**: periodically runs checks per active monitor; de-dupes against a persisted “seen” set; posts alerts & heartbeats.
 * **scraper**: resilient headless browser (Selenium / undetected-chromedriver), stealth tweaks, Cloudflare & oops recovery, JSON/DOM parsing, artifact snapshots for debugging.
 

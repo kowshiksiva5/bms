@@ -1,6 +1,9 @@
 services:
   bot:
     image: bms-rev2:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: bms-bot
     restart: unless-stopped
     env_file: .env
@@ -9,12 +12,15 @@ services:
       BMS_FORCE_UC: "1"
     volumes:
       - /var/lib/bms/artifacts:/app/artifacts
-    shm_size: "1gb"
+    shm_size: "1g"
     command: python -m bot.bot
 
   # duplicate this service per monitor (one worker == one monitor)
   worker-sample:
     image: bms-rev2:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: bms-worker-sample
     restart: unless-stopped
     env_file: .env
@@ -23,10 +29,10 @@ services:
       BMS_FORCE_UC: "1"
     volumes:
       - /var/lib/bms/artifacts:/app/artifacts
-    shm_size: "1gb"
+    shm_size: "1g"
     # replace MONITOR_ID after you create it via /new in Telegram
     command: >
-      python worker.py
+      python -m worker
       --monitor-id MONITOR_ID
       --monitor
       --trace
