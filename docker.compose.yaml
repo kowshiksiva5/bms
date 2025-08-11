@@ -1,6 +1,6 @@
 services:
   bot:
-    image: bms-rev2:latest
+    image: bms-rev1:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,7 +17,7 @@ services:
 
   # duplicate this service per monitor (one worker == one monitor)
   worker-sample:
-    image: bms-rev2:latest
+    image: bms-rev1:latest
     build:
       context: .
       dockerfile: Dockerfile

@@ -100,7 +100,10 @@ def connect() -> sqlite3.Connection:
             pass
     return conn
 
-def list_monitors(conn): return conn.execute("SELECT * FROM monitors ORDER BY created_at DESC").fetchall()
+def list_monitors(conn, chat_id: str = None): 
+    if chat_id:
+        return conn.execute("SELECT * FROM monitors WHERE owner_chat_id=? ORDER BY created_at DESC", (chat_id,)).fetchall()
+    return conn.execute("SELECT * FROM monitors ORDER BY created_at DESC").fetchall()
 def get_monitor(conn, mid): return conn.execute("SELECT * FROM monitors WHERE id=?", (mid,)).fetchone()
 def set_state(conn, mid, state):
     cur=conn.execute("UPDATE monitors SET state=?,updated_at=? WHERE id=?", (state,int(time.time()),mid)); conn.commit(); return cur.rowcount>0

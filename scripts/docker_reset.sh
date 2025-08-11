@@ -5,44 +5,41 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT"
 
-pick_compose_file() {
-  for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml docker.compose.yaml; do
-    [[ -f "$f" ]] && { echo "$f"; return 0; }
-  done
-  echo "No compose file found." >&2
-  exit 1
-}
-
-pick_compose_cli() {
-  if docker compose version >/dev/null 2>&1; then
-    echo "docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    echo "docker-compose"
-  else
-    echo "Neither 'docker compose' nor 'docker-compose' found on PATH." >&2
+# Check if .env file exists
+if [[ ! -f .env ]]; then
+    echo "Error: .env file not found in $(pwd)"
+    echo "Please create .env file with required environment variables"
     exit 1
-  fi
-}
+fi
 
-COMPOSE_FILE="$(pick_compose_file)"
-DC="$(pick_compose_cli)"
+# Check if docker-compose file exists
+COMPOSE_FILE="docker.compose.yaml"
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+    echo "Error: $COMPOSE_FILE not found in $(pwd)"
+    exit 1
+fi
 
-echo "Hard resetting stack using $COMPOSE_FILE via $DC …"
-[[ -f .env ]] && echo "Using .env from $(pwd)"
+# Check Docker CLI
+if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+else
+    echo "Error: Neither 'docker compose' nor 'docker-compose' found"
+    exit 1
+fi
 
-# Stop & remove everything (containers, networks, local images, volumes)
+echo "Using compose file: $COMPOSE_FILE"
+echo "Using CLI: $DC"
+echo "Using .env from: $(pwd)"
+echo "Performing hard reset..."
+
 set -x
 $DC -f "$COMPOSE_FILE" down --remove-orphans --rmi local --volumes
-
-# Rebuild without cache to avoid stale layers
 $DC -f "$COMPOSE_FILE" build --no-cache
-
-# Bring it back fresh
 $DC -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans
 set +x
 
 echo
-echo "Reset complete."
+echo "Service status:"
 $DC -f "$COMPOSE_FILE" ps
-echo
-echo "Tail logs: $DC -f \"$COMPOSE_FILE\" logs -f"

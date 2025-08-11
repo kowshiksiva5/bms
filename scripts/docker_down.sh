@@ -5,39 +5,34 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT"
 
-pick_compose_file() {
-  for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml docker.compose.yaml; do
-    [[ -f "$f" ]] && { echo "$f"; return 0; }
-  done
-  echo "No compose file found." >&2
-  exit 1
-}
-
-pick_compose_cli() {
-  if docker compose version >/dev/null 2>&1; then
-    echo "docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    echo "docker-compose"
-  else
-    echo "Neither 'docker compose' nor 'docker-compose' found on PATH." >&2
+# Check if docker-compose file exists
+COMPOSE_FILE="docker.compose.yaml"
+if [[ ! -f "$COMPOSE_FILE" ]]; then
+    echo "Error: $COMPOSE_FILE not found in $(pwd)"
     exit 1
-  fi
-}
+fi
 
-COMPOSE_FILE="$(pick_compose_file)"
-DC="$(pick_compose_cli)"
+# Check Docker CLI
+if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+else
+    echo "Error: Neither 'docker compose' nor 'docker-compose' found"
+    exit 1
+fi
 
-# Optional: pass --purge to also drop volumes & local images
 PURGE="${1:-}"
-REMOVE_VOLUMES=()
-REMOVE_IMAGES=()
+VOL=() IMG=()
+[[ "$PURGE" == "--purge" ]] && VOL+=(--volumes) IMG+=(--rmi local)
+
+echo "Using compose file: $COMPOSE_FILE"
+echo "Using CLI: $DC"
 if [[ "$PURGE" == "--purge" ]]; then
-  REMOVE_VOLUMES+=(--volumes)
-  REMOVE_IMAGES+=(--rmi local)
+    echo "Purging volumes and images..."
 fi
 
 set -x
-$DC -f "$COMPOSE_FILE" down --remove-orphans "${REMOVE_VOLUMES[@]}" "${REMOVE_IMAGES[@]}"
+$DC -f "$COMPOSE_FILE" down --remove-orphans "${VOL[@]}" "${IMG[@]}"
 set +x
-
 echo "Services stopped."

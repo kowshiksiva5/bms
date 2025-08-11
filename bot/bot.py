@@ -122,7 +122,7 @@ def _discover_theatre_names(url: str, d8: str) -> list[str]:
 
 def cmd_list(chat_id: str):
     with connect() as conn:
-        rows = list_monitors(conn)
+        rows = list_monitors(conn, chat_id)
     if not rows:
         send_text(chat_id, "No monitors."); return
     for r in rows:
