@@ -2,11 +2,16 @@
 from __future__ import annotations
 import os, re, time, random, tempfile, subprocess, json
 from typing import List, Tuple, Optional
+import logging
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # ---------- trace / artifacts ----------
 _TRACE = False
@@ -22,7 +27,7 @@ def set_trace(enabled: bool, artifacts_dir: Optional[str] = None):
 
 def _dbg(msg: str):
     if _TRACE:
-        print(f"[trace] {msg}", flush=True)
+        logger.debug(msg)
 
 def _save_artifacts(driver, label: str):
     if not (_TRACE and _ARTIFACTS_DIR):
@@ -156,8 +161,8 @@ def get_driver(debug: bool = False):
             _inject_stealth(d); _ua_override(d)
             _dbg("selenium driver OK")
             return d
-        except Exception as e:
-            print(f"[driver] Selenium failed: {e}")
+        except Exception:
+            logger.exception("[driver] Selenium failed")
 
     try:
         import undetected_chromedriver as uc
@@ -172,8 +177,8 @@ def get_driver(debug: bool = False):
         d.set_page_load_timeout(60); _inject_stealth(d); _ua_override(d)
         _dbg("UC driver OK")
         return d
-    except Exception as e:
-        print(f"[driver] UC failed: {e}")
+    except Exception:
+        logger.exception("[driver] UC failed")
         return None
 
 # ---------- Navigation ----------

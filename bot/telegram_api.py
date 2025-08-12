@@ -3,12 +3,17 @@ from __future__ import annotations
 import os, requests
 from config import TELEGRAM_BOT_TOKEN as _BOT, TELEGRAM_FALLBACK_CHAT_ID as _FALLBACK
 from typing import Optional, Dict, Any
+import logging
 
 from utils import titled
+from logging_config import setup_logging
 
 BOT_TOKEN=_BOT
 API=f"https://api.telegram.org/bot{BOT_TOKEN}"
 FALLBACK_CHAT=_FALLBACK
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 def _effective_chat(chat_id: Optional[str]) -> Optional[str]:
     c = (chat_id or "").strip() or FALLBACK_CHAT
@@ -22,7 +27,7 @@ def _send_raw(payload: Dict[str, Any], reply_markup: Optional[Dict[str, Any]]):
 def send_text(chat_id: str|None, text: str, reply_markup: Optional[Dict[str, Any]]=None):
     chat = _effective_chat(str(chat_id) if chat_id is not None else None)
     if not chat:
-        print("[telegram] skipped (no chat or token)")
+        logger.warning("[telegram] skipped (no chat or token)")
         return
     # Telegram message limit ~4096 characters
     chunks = [text[i:i+4000] for i in range(0, len(text), 4000)] or [text]
@@ -30,9 +35,9 @@ def send_text(chat_id: str|None, text: str, reply_markup: Optional[Dict[str, Any
         try:
             r = _send_raw({"chat_id": chat, "text": chunk}, reply_markup if chunk == chunks[-1] else None)
             if getattr(r, "status_code", 200) >= 300:
-                print("[telegram] error:", r.status_code, getattr(r, "text", ""))
+                logger.error("[telegram] error: %s %s", r.status_code, getattr(r, "text", ""))
         except Exception as e:
-            print("[telegram] exception:", e)
+            logger.exception("[telegram] exception")
 
 def send_alert(prefix_src, chat_id: str|None, text: str, reply_markup: Optional[Dict[str, Any]]=None):
     send_text(chat_id, titled(prefix_src, text), reply_markup=reply_markup)
@@ -44,8 +49,8 @@ def edit_text(chat_id: str, message_id: int, text: str, reply_markup: Optional[D
             requests.post(f"{API}/editMessageText", json={**payload,"reply_markup":reply_markup}, timeout=20)
         else:
             requests.post(f"{API}/editMessageText", data=payload, timeout=20)
-    except Exception as e:
-        print("[telegram] edit exception:", e)
+    except Exception:
+        logger.exception("[telegram] edit exception")
 
 def answer_cbq(cb_id: str, text: str=""):
     try:
@@ -56,6 +61,6 @@ def answer_cbq(cb_id: str, text: str=""):
 def get_updates(offset: int) -> dict:
     try:
         return requests.get(f"{API}/getUpdates", params={"timeout":30, "offset": offset+1}, timeout=35).json()
-    except Exception as e:
-        print("[telegram] getUpdates exception:", e)
+    except Exception:
+        logger.exception("[telegram] getUpdates exception")
         return {"ok": False, "result": []}
