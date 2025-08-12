@@ -22,7 +22,7 @@ case "$cmd" in
   bot)
     echo "Starting Telegram bot..."
     cd "$ROOT"
-    exec python3 -m bot.bot "$@"
+    exec python3 -m bot.app "$@"
     ;;
   scheduler)
     echo "Starting scheduler loop..."
@@ -68,7 +68,7 @@ case "$cmd" in
   bot)
     echo "Starting Telegram bot..."
     cd "$ROOT"
-    exec python -m bot.bot "$@"
+    exec python -m bot.app "$@"
     ;;
   scheduler)
     echo "Starting scheduler loop..."
