@@ -7,6 +7,7 @@ from utils import titled
 from bot.telegram_api import send_text, send_alert
 from store import connect, upsert_indexed_theatre, bulk_upsert_seen, is_seen, set_baseline_done, set_state
 from common import ensure_date_in_url
+from settings import settings
 
 def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"
 
@@ -70,7 +71,7 @@ def report_error(row: dict, err: Exception):
     chat = str(row.get('owner_chat_id') or '')
     send_alert(row, chat, f"⚠️ Error on [{row['id']}]: {err}")
     try:
-        art = os.environ.get("ART_DIR", "./artifacts")
+        art = settings.ART_DIR
         os.makedirs(art, exist_ok=True)
         with open(os.path.join(art, f"error_{int(time.time())}_{row['id']}.log"), "w", encoding="utf-8") as f:
             f.write(f"Monitor {row['id']} error\n")
