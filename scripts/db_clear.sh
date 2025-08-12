@@ -15,6 +15,14 @@ if [ -f "$ROOT/scripts/env.sh" ]; then
   source "$ROOT/scripts/env.sh"
 fi
 
+db_url="${DATABASE_URL:-}"
+if [[ -n "$db_url" && "$db_url" != sqlite:///* ]]; then
+  echo "Non-sqlite DATABASE_URL; cannot clear automatically" >&2
+  exit 1
+fi
+if [[ "$db_url" == sqlite:///* ]]; then
+  STATE_DB="${db_url#sqlite:///}"
+fi
 : "${STATE_DB:=$ROOT/artifacts/state.db}"
 
 echo "Deleting DB at: $STATE_DB"

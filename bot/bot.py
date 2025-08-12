@@ -20,12 +20,13 @@ def _health_summary() -> str:
     import shutil, os
     lines = []
     # DB
-    db_path = os.environ.get("STATE_DB", "./artifacts/state.db")
+    db_url = os.environ.get("DATABASE_URL")
+    db_path = db_url.replace("sqlite:///", "", 1) if db_url and db_url.startswith("sqlite:///") else os.environ.get("STATE_DB", "./artifacts/state.db")
     size = 0
     try:
-        if os.path.exists(db_path):
+        if db_path and os.path.exists(db_path):
             size = os.path.getsize(db_path)
-        lines.append(f"DB: {db_path} ({size//1024} KiB)")
+        lines.append(f"DB: {db_url or db_path} ({size//1024} KiB)")
     except Exception as e:
         lines.append(f"DB: error: {e}")
     # Artifacts
