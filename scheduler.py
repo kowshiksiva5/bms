@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, time, json, traceback
+import os, re, time, json, traceback, asyncio, threading
 from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
 from utils import titled
 from config import SCHEDULER_SLEEP_SEC as _SLEEP
 
-from bot.telegram_api import send_text, send_alert
+import bot.telegram_api as tg
 from services.monitor_service import report_error, format_new_shows, build_new_shows_keyboard
 
 from store import (
@@ -16,6 +16,17 @@ from store import (
 from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_time_window
 from scraper import get_driver, set_trace as set_scr_trace, parse_theatres
 from services.driver_manager import DriverManager
+
+_loop = asyncio.new_event_loop()
+threading.Thread(target=_loop.run_forever, daemon=True).start()
+
+
+def send_text(chat_id, text, reply_markup=None):
+    asyncio.run_coroutine_threadsafe(tg.send_text(chat_id, text, reply_markup), _loop)
+
+
+def send_alert(prefix_src, chat_id, text, reply_markup=None):
+    asyncio.run_coroutine_threadsafe(tg.send_alert(prefix_src, chat_id, text, reply_markup), _loop)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")

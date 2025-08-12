@@ -3,3 +3,5 @@ requests==2.32.3
 selenium==4.23.1
 undetected-chromedriver==3.5.5
 python-dotenv==1.0.1
+aiohttp==3.9.5
+aiogram==3.7.0
