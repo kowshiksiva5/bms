@@ -14,6 +14,7 @@ from store import (
 from bot.keyboards import kb_main, kb_date_picker, kb_theatre_picker, kb_interval_picker, kb_duration_picker, kb_heartbeat_picker
 from bot.telegram_api import send_text, send_alert, answer_cbq, get_updates
 from bot.commands import ensure_bot_commands
+from bot.utils import format_date_list, format_window
 from utils import titled, movie_title_from_url
 from config import TELEGRAM_ALLOWED_CHAT_IDS as _ALLOWED, BOT_OFFSET_FILE as _BOT_OFF
 def _health_summary() -> str:
@@ -99,11 +100,15 @@ def _eta(row) -> str:
 
 def _monitor_summary(r) -> str:
     th = len(json.loads(r["theatres"]) if r["theatres"] else [])
-    return (f"[{r['id']}] {r['state']} • every {r['interval_min']}m • next ~ {_eta(r)}\n"
-            f"Dates: {r['dates']}  |  Theatres: {th}  |  Window: {(r['time_start'] or '—')}–{(r['time_end'] or '—')}\n"
-            f"Mode: {r['mode'] or 'FIXED'} | Rolling: {r['rolling_days']} | Until: {r['end_date'] or '—'}\n"
-            f"Last run: {_fmt_ts(r['last_run_ts'])}  |  Last alert: {_fmt_ts(r['last_alert_ts'])}\n"
-            f"URL: {r['url']}")
+    dates = format_date_list(r["dates"])
+    window = format_window(r.get("time_start"), r.get("time_end"))
+    return (
+        f"[{r['id']}] {r['state']} • every {r['interval_min']}m • next ~ {_eta(r)}\n"
+        f"Dates: {dates}  |  Theatres: {th}  |  Window: {window}\n"
+        f"Mode: {r['mode'] or 'FIXED'} | Rolling: {r['rolling_days']} | Until: {r['end_date'] or '—'}\n"
+        f"Last run: {_fmt_ts(r['last_run_ts'])}  |  Last alert: {_fmt_ts(r['last_alert_ts'])}\n"
+        f"URL: {r['url']}"
+    )
 
 # --- helpers: theatre discovery for create flow ---
 def _discover_theatre_names(url: str, d8: str) -> list[str]:
