@@ -1,6 +1,6 @@
 services:
   bot:
-    image: bms-rev1:latest
+    image: ${IMAGE_NAME:-bms-rev1}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,7 +17,7 @@ services:
 
   # duplicate this service per monitor (one worker == one monitor)
   worker-sample:
-    image: bms-rev1:latest
+    image: ${IMAGE_NAME:-bms-rev1}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
