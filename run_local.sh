@@ -14,6 +14,9 @@ fi
 
 mkdir -p "$ROOT/artifacts"
 
+# default log level
+export LOG_LEVEL=${LOG_LEVEL:-INFO}
+
 cmd="${1:-bot}"
 shift || true
 

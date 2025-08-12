@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, re, time, json
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
+import logging
 from config import DEFAULT_HEARTBEAT_MINUTES as _DEF_HB
 
 from bot.telegram_api import send_text, send_alert
@@ -14,6 +15,10 @@ from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_ti
 from scraper import set_trace as set_scr_trace, parse_theatres
 from services.driver_manager import DriverManager
 from services.monitor_service import report_error
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")

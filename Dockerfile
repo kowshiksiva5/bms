@@ -8,5 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV TZ=Asia/Kolkata
+ENV TZ=Asia/Kolkata \
+    LOG_LEVEL=INFO \
+    PYTHONUNBUFFERED=1
 CMD ["python","bot/bot.py"]

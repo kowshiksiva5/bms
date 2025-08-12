@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os, time, re, json, secrets, sys
 from typing import List, Set
+import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
@@ -16,6 +17,10 @@ from bot.telegram_api import send_text, send_alert, answer_cbq, get_updates
 from bot.commands import ensure_bot_commands
 from utils import titled, movie_title_from_url
 from config import TELEGRAM_ALLOWED_CHAT_IDS as _ALLOWED, BOT_OFFSET_FILE as _BOT_OFF
+from logging_config import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
 def _health_summary() -> str:
     import shutil, os
     lines = []
@@ -872,9 +877,9 @@ def main():
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
         ok=ensure_bot_commands()
         if not ok:
-            print("Failed to update commands.")
+            logger.error("Failed to update commands.")
     else:
-        print("TELEGRAM_BOT_TOKEN not set; skipping setMyCommands")
+        logger.warning("TELEGRAM_BOT_TOKEN not set; skipping setMyCommands")
     try:
         with open(UPD_OFF,"r") as f: offset = int((f.read() or "0").strip())
     except Exception:
@@ -898,7 +903,8 @@ def main():
                 with open(UPD_OFF,"w") as f: f.write(str(offset))
             except Exception: pass
         except Exception as e:
-            print("poll error:", e); time.sleep(2)
+            logger.exception("poll error")
+            time.sleep(2)
 
 if __name__ == "__main__":
     main()
