@@ -206,8 +206,11 @@ View all your active monitors with status and controls.
 ./scripts/docker_logs.sh --debug
 ```
 
+<<<<<<< HEAD
 **Note:** The worker service uses `bms-rev1:latest` image and requires manual configuration of `MONITOR_ID` in the docker-compose.yaml file.
 
+=======
+>>>>>>> main
 ### Database Management
 ```bash
 # View database contents
@@ -266,7 +269,10 @@ View all your active monitors with status and controls.
 - **Chrome**: Uses Google Chrome with platform emulation
 - **Memory**: 1GB shared memory for browser operations
 - **Volumes**: Persistent database and artifacts storage
+<<<<<<< HEAD
 - **Image**: `bms-rev1:latest`
+=======
+>>>>>>> main
 
 ## 🚨 Troubleshooting
 
@@ -388,6 +394,7 @@ bms/
 ├── requirements.txt   # Python dependencies
 ├── Dockerfile         # Docker image definition
 ├── docker.compose.yaml # Docker services configuration
+├── run.sh             # Deployment script
 └── README.md          # This documentation
 ```
 
@@ -401,7 +408,6 @@ python-dotenv==1.0.1    # Environment management
 aiohttp==3.9.5          # Async HTTP client
 aiogram==3.7.0          # Async Telegram bot framework
 ```
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
