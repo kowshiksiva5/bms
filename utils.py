@@ -1,6 +1,7 @@
 # utils.py
 import re
 
+
 def movie_title_from_url(url: str) -> str:
     """Best-effort title from a BMS movie URL, else ET code, else 'Movie'."""
     try:
@@ -18,6 +19,7 @@ def movie_title_from_url(url: str) -> str:
     except Exception:
         pass
     return "Movie"
+
 
 def titled(prefix_src, text: str) -> str:
     """
