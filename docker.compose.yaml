@@ -13,7 +13,7 @@ services:
     volumes:
       - /var/lib/bms/artifacts:/app/artifacts
     shm_size: "1g"
-    command: python -m bot.bot
+    command: python -m bot.app
 
   # duplicate this service per monitor (one worker == one monitor)
   worker-sample:

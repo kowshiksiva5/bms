@@ -80,7 +80,7 @@ if [[ "$DEBUG" == "--debug" ]]; then
             fi
             
             if [[ "$container" == "bms-bot" ]]; then
-                if docker exec "$container" python -c "from bot.bot import main; print('  ✅ bot module')" 2>/dev/null; then
+                if docker exec "$container" python -c "from bot.app import main; print('  ✅ bot module')" 2>/dev/null; then
                     :
                 else
                     echo "  ❌ bot module failed"
