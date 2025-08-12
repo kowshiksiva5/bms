@@ -344,16 +344,14 @@ cd bms
 
 # Install dependencies
 pip install -r requirements.txt
+pip install pre-commit
+pre-commit install
 
 # Run tests
 python -m pytest tests/
 
-# Format code
-black .
-isort .
-
-# Type checking
-mypy .
+# Lint and type-check
+pre-commit run --all-files
 ```
 
 ### Code Structure
