@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>BMS Monitors</title>
+</head>
+<body>
+<nav>
+  <a href="/">Home</a>
+  {% if user %}<span>Logged in as {{ user.username or user.id }}</span>{% endif %}
+</nav>
+<hr/>
+{% block content %}{% endblock %}
+</body>
+</html>

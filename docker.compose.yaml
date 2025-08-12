@@ -1,4 +1,19 @@
 services:
+  webapp:
+    image: bms-webapp:latest
+    build:
+      context: .
+      dockerfile: webapp/Dockerfile
+    container_name: bms-webapp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Kolkata
+    volumes:
+      - /var/lib/bms/artifacts:/app/artifacts
+    ports:
+      - "8000:8000"
+
   bot:
     image: bms-rev1:latest
     build:
