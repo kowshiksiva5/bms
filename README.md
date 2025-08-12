@@ -398,6 +398,8 @@ requests==2.32.3        # HTTP requests
 selenium==4.23.1        # Browser automation
 undetected-chromedriver==3.5.5  # Stealth browser
 python-dotenv==1.0.1    # Environment management
+aiohttp==3.9.5          # Async HTTP client
+aiogram==3.7.0          # Async Telegram bot framework
 ```
 
 ## 📄 License
