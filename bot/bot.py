@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, time, re, json, secrets, sys
+import os, time, re, json, secrets, sys, asyncio
 from typing import List, Set
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -12,10 +12,25 @@ from store import (
     get_indexed_theatres, get_ui_session, set_ui_session, clear_ui_session
 )
 from bot.keyboards import kb_main, kb_date_picker, kb_theatre_picker, kb_interval_picker, kb_duration_picker, kb_heartbeat_picker
-from bot.telegram_api import send_text, send_alert, answer_cbq, get_updates
+import bot.telegram_api as tg
 from bot.commands import ensure_bot_commands
 from utils import titled, movie_title_from_url
 from config import TELEGRAM_ALLOWED_CHAT_IDS as _ALLOWED, BOT_OFFSET_FILE as _BOT_OFF
+
+
+def send_text(chat_id, text, reply_markup=None):
+    asyncio.create_task(tg.send_text(chat_id, text, reply_markup))
+
+
+def send_alert(prefix_src, chat_id, text, reply_markup=None):
+    asyncio.create_task(tg.send_alert(prefix_src, chat_id, text, reply_markup))
+
+
+def answer_cbq(cb_id, text=""):
+    asyncio.create_task(tg.answer_cbq(cb_id, text))
+
+
+get_updates = tg.get_updates
 def _health_summary() -> str:
     import shutil, os
     lines = []
@@ -796,8 +811,7 @@ def handle_callback(upd):
     msg  = cq.get("message") or {}
     chat_id = str(msg.get("chat",{}).get("id"))
     data = cq.get("data","")
-    from bot.telegram_api import answer_cbq as _answer_cbq
-    _answer_cbq(cbid)
+    answer_cbq(cbid)
     if not _allowed(int(chat_id)): return
     parts = data.split("|")
     action = parts[0] if parts else ""
@@ -868,37 +882,45 @@ def handle_callback(upd):
 
     send_text(chat_id, "Unknown action.")
 
-def main():
+async def main():
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
-        ok=ensure_bot_commands()
+        ok = ensure_bot_commands()
         if not ok:
             print("Failed to update commands.")
     else:
         print("TELEGRAM_BOT_TOKEN not set; skipping setMyCommands")
     try:
-        with open(UPD_OFF,"r") as f: offset = int((f.read() or "0").strip())
+        with open(UPD_OFF, "r") as f:
+            offset = int((f.read() or "0").strip())
     except Exception:
         offset = 0
     while True:
         try:
-            resp = get_updates(offset)
+            resp = await get_updates(offset)
             for upd in resp.get("result", []):
                 offset = upd["update_id"]
                 if "callback_query" in upd:
-                    handle_callback(upd); continue
+                    handle_callback(upd)
+                    continue
                 m = upd.get("message") or upd.get("edited_message")
-                if not m: continue
+                if not m:
+                    continue
                 chat_id = str(m["chat"]["id"])
                 text = (m.get("text") or "").strip()
-                if not text: continue
+                if not text:
+                    continue
                 if not _allowed(int(chat_id)):
-                    send_text(chat_id, "Unauthorized."); continue
+                    send_text(chat_id, "Unauthorized.")
+                    continue
                 handle_command(chat_id, text)
             try:
-                with open(UPD_OFF,"w") as f: f.write(str(offset))
-            except Exception: pass
+                with open(UPD_OFF, "w") as f:
+                    f.write(str(offset))
+            except Exception:
+                pass
         except Exception as e:
-            print("poll error:", e); time.sleep(2)
+            print("poll error:", e)
+            await asyncio.sleep(2)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

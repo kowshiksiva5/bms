@@ -4,7 +4,8 @@ from typing import Dict, List, Tuple
 import os, re, time, traceback
 
 from utils import titled
-from bot.telegram_api import send_text, send_alert
+import asyncio
+import bot.telegram_api as tg
 from store import connect, upsert_indexed_theatre, bulk_upsert_seen, is_seen, set_baseline_done, set_state
 from common import ensure_date_in_url
 
@@ -68,7 +69,10 @@ def build_new_shows_keyboard(row: dict, found: List[Tuple[str,str,str]]) -> Dict
 
 def report_error(row: dict, err: Exception):
     chat = str(row.get('owner_chat_id') or '')
-    send_alert(row, chat, f"⚠️ Error on [{row['id']}]: {err}")
+    try:
+        asyncio.run(tg.send_alert(row, chat, f"⚠️ Error on [{row['id']}]: {err}"))
+    except Exception:
+        pass
     try:
         art = os.environ.get("ART_DIR", "./artifacts")
         os.makedirs(art, exist_ok=True)
