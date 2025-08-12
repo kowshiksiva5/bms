@@ -1,4 +1,9 @@
 services:
+  redis:
+    image: redis:7
+    container_name: bms-redis
+    restart: unless-stopped
+
   bot:
     image: bms-rev1:latest
     build:
@@ -10,30 +15,29 @@ services:
     environment:
       TZ: Asia/Kolkata
       BMS_FORCE_UC: "1"
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - /var/lib/bms/artifacts:/app/artifacts
     shm_size: "1g"
     command: python -m bot.bot
+    depends_on:
+      - redis
 
-  # duplicate this service per monitor (one worker == one monitor)
-  worker-sample:
+  worker:
     image: bms-rev1:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bms-worker-sample
+    container_name: bms-worker
     restart: unless-stopped
     env_file: .env
     environment:
       TZ: Asia/Kolkata
       BMS_FORCE_UC: "1"
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - /var/lib/bms/artifacts:/app/artifacts
     shm_size: "1g"
-    # replace MONITOR_ID after you create it via /new in Telegram
-    command: >
-      python -m worker
-      --monitor-id MONITOR_ID
-      --monitor
-      --trace
-      --artifacts-dir ./artifacts
+    command: python -m worker
+    depends_on:
+      - redis
