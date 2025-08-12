@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Monitor {{ monitor['id'] }}</h2>
+<p>State: {{ monitor['state'] }}</p>
+<p>URL: {{ monitor['url'] }}</p>
+<p>Interval: {{ monitor['interval_min'] }} minutes</p>
+<h3>Update Interval</h3>
+<form method="post" action="/monitor/{{ monitor['id'] }}/edit">
+  <label>Interval minutes: <input type="number" name="interval_min" value="{{ monitor['interval_min'] }}" /></label>
+  <button type="submit">Update</button>
+</form>
+<h3>Logs</h3>
+<pre style="background:#eee; padding:1em;">{{ logs }}</pre>
+{% endblock %}

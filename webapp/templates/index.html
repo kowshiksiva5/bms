@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Monitors</h2>
+<ul>
+{% for m in monitors %}
+  <li><a href="/monitor/{{ m['id'] }}">{{ m['id'] }} - {{ m['state'] }}</a></li>
+{% else %}
+  <li>No monitors</li>
+{% endfor %}
+</ul>
+{% endblock %}

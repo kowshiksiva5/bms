@@ -44,6 +44,11 @@ Start monitoring your favorite movies now! 🎭🎪
 - **Import/Export** - Backup and restore your monitor configurations
 - **Multi-user support** - Each user sees only their own monitors
 
+### 🌐 **Web Dashboard**
+- **FastAPI service** for viewing monitor status and logs
+- **Telegram login** or token based access control
+- **Edit intervals** and other settings through simple forms
+
 ### 🚀 **Reliable Infrastructure**
 - **Docker deployment** - Easy setup and scaling
 - **Error handling** - Automatic recovery and user notifications
