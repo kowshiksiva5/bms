@@ -3,8 +3,11 @@ from __future__ import annotations
 import os, re, time, json, traceback
 from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
+import logging
+
 from utils import titled
 from config import SCHEDULER_SLEEP_SEC as _SLEEP
+from logging_config import setup_logging
 
 from bot.telegram_api import send_text, send_alert
 from services.monitor_service import report_error, format_new_shows, build_new_shows_keyboard
@@ -16,6 +19,9 @@ from store import (
 from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_time_window
 from scraper import get_driver, set_trace as set_scr_trace, parse_theatres
 from services.driver_manager import DriverManager
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
@@ -240,10 +246,10 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=N
                         else:
                             _run_monitor(dm, r, heartbeat_book)
                 except Exception as e:
-                    print("monitor error:", e)
+                    logger.exception("monitor error")
                     report_error(r, e)
         except Exception as outer:
-            print("scheduler loop error:", outer)
+            logger.exception("scheduler loop error")
             time.sleep(3)
         time.sleep(int(sleep_sec or _SLEEP))
 

@@ -15,6 +15,9 @@ fi
 
 mkdir -p "$ROOT/artifacts"
 
+# default log level
+export LOG_LEVEL=${LOG_LEVEL:-INFO}
+
 cmd="${1:-bot}"
 shift || true
 
@@ -60,6 +63,9 @@ elif [ -f "$ROOT/scripts/env.sh" ]; then
 fi
 
 mkdir -p "$ROOT/artifacts"
+
+# default log level
+export LOG_LEVEL=${LOG_LEVEL:-INFO}
 
 cmd="${1:-bot}"
 shift || true
