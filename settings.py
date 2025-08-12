@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import Set, Optional
-from pydantic import BaseSettings, Field, validator
-from dotenv import load_dotenv
+from typing import Optional, Set
 from pathlib import Path
 
-# load .env from repository root
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+from dotenv import load_dotenv
+from pydantic import BaseSettings, Field, validator
+
+# load .env if present (searches upwards from cwd)
+load_dotenv()
 
 class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
@@ -13,9 +14,9 @@ class Settings(BaseSettings):
     TELEGRAM_ALLOWED_CHAT_IDS: Set[str] = Field(default_factory=set)
 
     TZ: str = "Asia/Kolkata"
-    ART_DIR: str = "./artifacts"
-    STATE_DB: Optional[str] = None
-    BOT_OFFSET_FILE: Optional[str] = None
+    ART_DIR: Path = Path("./artifacts")
+    STATE_DB: Optional[Path] = None
+    BOT_OFFSET_FILE: Optional[Path] = None
     DEFAULT_DAILY_TIME: str = "09:00"
 
     CHROME_BINARY: Optional[str] = None
@@ -36,13 +37,13 @@ class Settings(BaseSettings):
 
     @validator("STATE_DB", pre=True, always=True)
     def _default_state_db(cls, v, values):
-        art = values.get("ART_DIR", "./artifacts")
-        return v or f"{art}/state.db"
+        art: Path = values.get("ART_DIR", Path("./artifacts"))
+        return v or art / "state.db"
 
     @validator("BOT_OFFSET_FILE", pre=True, always=True)
     def _default_bot_offset_file(cls, v, values):
-        art = values.get("ART_DIR", "./artifacts")
-        return v or f"{art}/bot_offset.txt"
+        art: Path = values.get("ART_DIR", Path("./artifacts"))
+        return v or art / "bot_offset.txt"
 
     class Config:
         env_file = ".env"

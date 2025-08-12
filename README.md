@@ -267,12 +267,14 @@ environment and a local `.env` file (via `python-dotenv`).
 | `ART_DIR` | Directory for artifacts and logs | `./artifacts` |
 | `BOT_OFFSET_FILE` | Telegram update offset tracking file | `./artifacts/bot_offset.txt` |
 | `BMS_FORCE_UC` | Force undetected-chromedriver | `1` |
-| `CHROME_BINARY` | Chrome/Chromium binary path | `/usr/bin/google-chrome` |
+| `CHROME_BINARY` | Chrome binary path | `/usr/bin/google-chrome` |
+| `CHROMIUM_BINARY` | Alternate Chromium binary path | — |
 | `BMS_USER_DATA_DIR` | Chrome user data directory | *(temp dir)* |
 | `BMS_PROFILE_DIR` | Chrome profile directory | `Default` |
 | `BMS_CHROME_VERSION_MAIN` | Override Chrome major version | — |
 | `SCHEDULER_SLEEP_SEC` | Scheduler poll interval (seconds) | `10` |
 | `DEFAULT_HEARTBEAT_MINUTES` | Default worker heartbeat minutes | `180` |
+| `DEFAULT_DAILY_TIME` | Default daily summary time (HH:MM) | `09:00` |
 | `TZ` | Timezone for timestamps | `Asia/Kolkata` |
 
 ### Docker Configuration
