@@ -23,6 +23,7 @@ TELEGRAM_FALLBACK_CHAT_ID: str = _env("TELEGRAM_CHAT_ID", "") or ""
 TZ: str = _env("TZ", "Asia/Kolkata") or "Asia/Kolkata"
 ART_DIR: str = _env("ART_DIR", "./artifacts") or "./artifacts"
 STATE_DB: str = _env("STATE_DB", f"{ART_DIR}/state.db") or f"{ART_DIR}/state.db"
+DATABASE_URL: str = _env("DATABASE_URL", f"sqlite:///{STATE_DB}") or f"sqlite:///{STATE_DB}"
 BOT_OFFSET_FILE: str = _env("BOT_OFFSET_FILE", f"{ART_DIR}/bot_offset.txt") or f"{ART_DIR}/bot_offset.txt"
 DEFAULT_DAILY_TIME: str = _env("DEFAULT_DAILY_TIME", "09:00") or "09:00"
 

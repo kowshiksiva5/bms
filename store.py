@@ -1,202 +1,246 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, time, json, sqlite3
-from config import STATE_DB as _STATE_DB
-from typing import List, Optional
+import os, time, json
+from typing import List
+from sqlalchemy import create_engine, select, update, delete
+from sqlalchemy.orm import sessionmaker
+from config import DATABASE_URL as DB_URL
+from db import Base, Monitor, Seen, TheatreIndex, Run, Snapshot, Daily, UISession
 
-STATE_DB = _STATE_DB
 
-SCHEMA = """
-PRAGMA journal_mode=WAL;
-CREATE TABLE IF NOT EXISTS monitors(
-  id TEXT PRIMARY KEY,
-  url TEXT NOT NULL,
-  dates TEXT NOT NULL,
-  theatres TEXT NOT NULL,
-  interval_min INTEGER NOT NULL,
-  baseline INTEGER NOT NULL,
-  state TEXT NOT NULL,
-  snooze_until INTEGER,
-  owner_chat_id TEXT,
-  mode TEXT DEFAULT 'FIXED',
-  rolling_days INTEGER DEFAULT 0,
-  end_date TEXT,
-  time_start TEXT,
-  time_end TEXT,
-  heartbeat_minutes INTEGER DEFAULT 180,
-  created_at INTEGER,
-  updated_at INTEGER,
-  last_run_ts INTEGER,
-  last_alert_ts INTEGER,
-  reload INTEGER DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS seen(
-  monitor_id TEXT NOT NULL,
-  date TEXT NOT NULL,
-  theatre TEXT NOT NULL,
-  time TEXT NOT NULL,
-  first_seen_ts INTEGER,
-  PRIMARY KEY(monitor_id, date, theatre, time)
-);
-CREATE TABLE IF NOT EXISTS theatres_index(
-  monitor_id TEXT NOT NULL,
-  date TEXT NOT NULL,
-  theatre TEXT NOT NULL,
-  last_seen_ts INTEGER,
-  PRIMARY KEY(monitor_id,date,theatre)
-);
-CREATE TABLE IF NOT EXISTS runs(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  monitor_id TEXT NOT NULL,
-  started_ts INTEGER,
-  finished_ts INTEGER,
-  status TEXT,
-  error TEXT
-);
-CREATE TABLE IF NOT EXISTS snapshots(
-  monitor_id TEXT NOT NULL,
-  date TEXT NOT NULL,
-  theatre TEXT NOT NULL,
-  times_json TEXT NOT NULL,
-  updated_at INTEGER,
-  PRIMARY KEY(monitor_id,date,theatre)
-);
-CREATE TABLE IF NOT EXISTS daily(
-  chat_id TEXT PRIMARY KEY,
-  hhmm TEXT NOT NULL,
-  enabled INTEGER NOT NULL DEFAULT 0,
-  last_sent_ts INTEGER
-);
-CREATE TABLE IF NOT EXISTS ui_sessions(
-  chat_id TEXT NOT NULL,
-  monitor_id TEXT NOT NULL,
-  data_json TEXT NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY(chat_id, monitor_id)
-);
-"""
+def _ensure_dir_from_url(url: str):
+    if url.startswith("sqlite:///"):
+        path = url.replace("sqlite:///", "", 1)
+        d = os.path.dirname(os.path.abspath(path))
+        if d and not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
 
-def _ensure_dir(path: str):
-    d = os.path.dirname(os.path.abspath(path))
-    if d and not os.path.isdir(d):
-        os.makedirs(d, exist_ok=True)
+_ensure_dir_from_url(DB_URL)
+_engine = create_engine(
+    DB_URL,
+    connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {},
+)
+Base.metadata.create_all(_engine)
+SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
 
-def connect() -> sqlite3.Connection:
-    _ensure_dir(STATE_DB)
-    conn = sqlite3.connect(STATE_DB, timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    for alter in [
-        "ALTER TABLE monitors ADD COLUMN mode TEXT DEFAULT 'FIXED'",
-        "ALTER TABLE monitors ADD COLUMN rolling_days INTEGER DEFAULT 0",
-        "ALTER TABLE monitors ADD COLUMN end_date TEXT",
-        "ALTER TABLE monitors ADD COLUMN time_start TEXT",
-        "ALTER TABLE monitors ADD COLUMN time_end TEXT",
-        "ALTER TABLE monitors ADD COLUMN reload INTEGER DEFAULT 0",
-    ]:
-        try:
-            conn.execute(alter); conn.commit()
-        except Exception:
-            pass
-    return conn
 
-def list_monitors(conn, chat_id: str = None): 
+def connect():
+    return SessionLocal()
+
+
+def _to_dict(obj):
+    if obj is None:
+        return None
+    return {c.key: getattr(obj, c.key) for c in obj.__table__.columns}
+
+
+def list_monitors(sess, chat_id: str = None):
+    q = select(Monitor)
     if chat_id:
-        return conn.execute("SELECT * FROM monitors WHERE owner_chat_id=? ORDER BY created_at DESC", (chat_id,)).fetchall()
-    return conn.execute("SELECT * FROM monitors ORDER BY created_at DESC").fetchall()
-def get_monitor(conn, mid): return conn.execute("SELECT * FROM monitors WHERE id=?", (mid,)).fetchone()
-def set_state(conn, mid, state):
-    cur=conn.execute("UPDATE monitors SET state=?,updated_at=? WHERE id=?", (state,int(time.time()),mid)); conn.commit(); return cur.rowcount>0
-def set_reload(conn, mid):
-    cur=conn.execute("UPDATE monitors SET reload=1,updated_at=? WHERE id=?", (int(time.time()),mid)); conn.commit(); return cur.rowcount>0
-def set_dates(conn, mid, csv):
-    cur=conn.execute("UPDATE monitors SET dates=?,updated_at=? WHERE id=?", (csv,int(time.time()),mid)); conn.commit(); return cur.rowcount>0
-def set_interval(conn, mid, minutes):
-    cur=conn.execute("UPDATE monitors SET interval_min=?,updated_at=? WHERE id=?", (minutes,int(time.time()),mid)); conn.commit(); return cur.rowcount>0
-def set_time_window(conn, mid, s, e):
-    cur=conn.execute("UPDATE monitors SET time_start=?, time_end=?, updated_at=? WHERE id=?", (s,e,int(time.time()),mid)); conn.commit(); return cur.rowcount>0
-def set_theatres(conn, mid, theatres):
-    import json as _json
-    cur=conn.execute("UPDATE monitors SET theatres=?, updated_at=? WHERE id=?", (_json.dumps(theatres,ensure_ascii=False), int(time.time()), mid)); conn.commit(); return cur.rowcount>0
-def set_mode(conn, mid, mode, rolling_days=0, end_date=None):
-    cur=conn.execute("UPDATE monitors SET mode=?, rolling_days=?, end_date=?, updated_at=? WHERE id=?", 
-                     (mode, int(rolling_days or 0), end_date, int(time.time()), mid)); conn.commit(); return cur.rowcount>0
+        q = q.where(Monitor.owner_chat_id == chat_id)
+    q = q.order_by(Monitor.created_at.desc())
+    rows = sess.execute(q).scalars().all()
+    return [_to_dict(r) for r in rows]
 
-# Snooze helpers
-def set_snooze(conn, mid: str, until_ts: int):
-    cur=conn.execute("UPDATE monitors SET snooze_until=?, updated_at=? WHERE id=?", (int(until_ts), int(time.time()), mid)); conn.commit(); return cur.rowcount>0
 
-def clear_snooze(conn, mid: str):
-    cur=conn.execute("UPDATE monitors SET snooze_until=NULL, updated_at=? WHERE id=?", (int(time.time()), mid)); conn.commit(); return cur.rowcount>0
+def get_monitor(sess, mid):
+    r = sess.get(Monitor, mid)
+    return _to_dict(r)
 
-def get_indexed_theatres(conn, mid) -> List[str]:
-    rows = conn.execute("SELECT DISTINCT theatre FROM theatres_index WHERE monitor_id=? ORDER BY theatre COLLATE NOCASE", (mid,)).fetchall()
-    return [r["theatre"] for r in rows]
 
-def upsert_indexed_theatre(conn, mid, date, theatre):
-    conn.execute("""INSERT INTO theatres_index(monitor_id,date,theatre,last_seen_ts)
-                    VALUES(?,?,?,?)
-                    ON CONFLICT(monitor_id,date,theatre) DO UPDATE SET last_seen_ts=excluded.last_seen_ts""",
-                 (mid, date, theatre, int(time.time())))
-    conn.commit()
-
-# UI session helpers
-def get_ui_session(conn, chat_id: str, sid: str):
-    row = conn.execute("SELECT data_json FROM ui_sessions WHERE chat_id=? AND monitor_id=?", (str(chat_id), str(sid))).fetchone()
-    import json as _json
-    return _json.loads(row["data_json"]) if row else None
-
-def set_ui_session(conn, chat_id: str, sid: str, data: dict):
-    import json as _json
-    now = int(time.time())
-    conn.execute(
-        """INSERT INTO ui_sessions(chat_id, monitor_id, data_json, updated_at)
-           VALUES(?,?,?,?)
-           ON CONFLICT(chat_id, monitor_id) DO UPDATE SET
-             data_json=excluded.data_json, updated_at=excluded.updated_at""" ,
-        (str(chat_id), str(sid), _json.dumps(data, ensure_ascii=False), now)
+def set_state(sess, mid, state):
+    res = sess.execute(
+        update(Monitor).where(Monitor.id == mid).values(state=state, updated_at=int(time.time()))
     )
-    conn.commit()
+    sess.commit()
+    return res.rowcount > 0
 
-def clear_ui_session(conn, chat_id: str, sid: str):
-    conn.execute("DELETE FROM ui_sessions WHERE chat_id=? AND monitor_id=?", (str(chat_id), str(sid)))
-    conn.commit()
 
-# ---- New helpers for scheduler ----
-def get_active_monitors(conn):
-    return conn.execute("SELECT * FROM monitors WHERE state IN ('RUNNING','DISCOVER')").fetchall()
+def set_reload(sess, mid):
+    res = sess.execute(
+        update(Monitor).where(Monitor.id == mid).values(reload=1, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
 
-def upsert_seen(conn, monitor_id: str, date: str, theatre: str, time_: str, first_seen_ts: int):
-    conn.execute("""INSERT INTO seen(monitor_id,date,theatre,time,first_seen_ts)
-                    VALUES(?,?,?,?,?)
-                    ON CONFLICT(monitor_id,date,theatre,time) DO NOTHING""",
-                 (monitor_id, date, theatre, time_, first_seen_ts))
-    conn.commit()
 
-def bulk_upsert_seen(conn, rows):
-    # rows: list of (monitor_id, date, theatre, time, ts)
-    if not rows: return
-    conn.executemany("""INSERT INTO seen(monitor_id,date,theatre,time,first_seen_ts)
-                        VALUES(?,?,?,?,?)
-                        ON CONFLICT(monitor_id,date,theatre,time) DO NOTHING""", rows)
-    conn.commit()
+def set_dates(sess, mid, csv):
+    res = sess.execute(
+        update(Monitor).where(Monitor.id == mid).values(dates=csv, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
 
-def is_seen(conn, monitor_id: str, date: str, theatre: str, time_: str) -> bool:
-    r = conn.execute("SELECT 1 FROM seen WHERE monitor_id=? AND date=? AND theatre=? AND time=?",
-                     (monitor_id, date, theatre, time_)).fetchone()
+
+def set_interval(sess, mid, minutes):
+    res = sess.execute(
+        update(Monitor).where(Monitor.id == mid).values(interval_min=minutes, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def set_time_window(sess, mid, s, e):
+    res = sess.execute(
+        update(Monitor)
+        .where(Monitor.id == mid)
+        .values(time_start=s, time_end=e, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def set_theatres(sess, mid, theatres):
+    res = sess.execute(
+        update(Monitor)
+        .where(Monitor.id == mid)
+        .values(theatres=json.dumps(theatres, ensure_ascii=False), updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def set_mode(sess, mid, mode, rolling_days=0, end_date=None):
+    res = sess.execute(
+        update(Monitor)
+        .where(Monitor.id == mid)
+        .values(
+            mode=mode,
+            rolling_days=int(rolling_days or 0),
+            end_date=end_date,
+            updated_at=int(time.time()),
+        )
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def set_snooze(sess, mid: str, until_ts: int):
+    res = sess.execute(
+        update(Monitor)
+        .where(Monitor.id == mid)
+        .values(snooze_until=int(until_ts), updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def clear_snooze(sess, mid: str):
+    res = sess.execute(
+        update(Monitor)
+        .where(Monitor.id == mid)
+        .values(snooze_until=None, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def get_indexed_theatres(sess, mid) -> List[str]:
+    rows = sess.execute(
+        select(TheatreIndex.theatre).where(TheatreIndex.monitor_id == mid).order_by(TheatreIndex.theatre)
+    ).scalars().all()
+    return rows
+
+
+def upsert_indexed_theatre(sess, mid, date, theatre):
+    sess.merge(
+        TheatreIndex(
+            monitor_id=mid,
+            date=date,
+            theatre=theatre,
+            last_seen_ts=int(time.time()),
+        )
+    )
+    sess.commit()
+
+
+def get_ui_session(sess, chat_id: str, sid: str):
+    row = sess.get(UISession, {"chat_id": str(chat_id), "monitor_id": str(sid)})
+    return json.loads(row.data_json) if row else None
+
+
+def set_ui_session(sess, chat_id: str, sid: str, data: dict):
+    now = int(time.time())
+    sess.merge(
+        UISession(
+            chat_id=str(chat_id),
+            monitor_id=str(sid),
+            data_json=json.dumps(data, ensure_ascii=False),
+            updated_at=now,
+        )
+    )
+    sess.commit()
+
+
+def clear_ui_session(sess, chat_id: str, sid: str):
+    sess.execute(
+        delete(UISession).where(UISession.chat_id == str(chat_id), UISession.monitor_id == str(sid))
+    )
+    sess.commit()
+
+
+def get_active_monitors(sess):
+    rows = sess.execute(
+        select(Monitor).where(Monitor.state.in_(["RUNNING", "DISCOVER"]))
+    ).scalars().all()
+    return [_to_dict(r) for r in rows]
+
+
+def upsert_seen(sess, monitor_id: str, date: str, theatre: str, time_: str, first_seen_ts: int):
+    sess.merge(
+        Seen(
+            monitor_id=monitor_id,
+            date=date,
+            theatre=theatre,
+            time=time_,
+            first_seen_ts=first_seen_ts,
+        )
+    )
+    sess.commit()
+
+
+def bulk_upsert_seen(sess, rows):
+    if not rows:
+        return
+    for r in rows:
+        sess.merge(
+            Seen(
+                monitor_id=r[0],
+                date=r[1],
+                theatre=r[2],
+                time=r[3],
+                first_seen_ts=r[4],
+            )
+        )
+    sess.commit()
+
+
+def is_seen(sess, monitor_id: str, date: str, theatre: str, time_: str) -> bool:
+    r = sess.execute(
+        select(Seen)
+        .where(
+            Seen.monitor_id == monitor_id,
+            Seen.date == date,
+            Seen.theatre == theatre,
+            Seen.time == time_,
+        )
+    ).first()
     return bool(r)
 
-def set_baseline_done(conn, mid: str):
-    cur=conn.execute("UPDATE monitors SET baseline=0, updated_at=? WHERE id=?", (int(time.time()), mid))
-    conn.commit()
-    return cur.rowcount>0
 
-# Deletion
-def delete_monitor(conn, mid: str):
-    conn.execute("DELETE FROM seen WHERE monitor_id=?", (mid,))
-    conn.execute("DELETE FROM theatres_index WHERE monitor_id=?", (mid,))
-    conn.execute("DELETE FROM snapshots WHERE monitor_id=?", (mid,))
-    conn.execute("DELETE FROM runs WHERE monitor_id=?", (mid,))
-    cur=conn.execute("DELETE FROM monitors WHERE id=?", (mid,))
-    conn.commit()
-    return cur.rowcount>0
+def set_baseline_done(sess, mid: str):
+    res = sess.execute(
+        update(Monitor).where(Monitor.id == mid).values(baseline=0, updated_at=int(time.time()))
+    )
+    sess.commit()
+    return res.rowcount > 0
+
+
+def delete_monitor(sess, mid: str):
+    sess.execute(delete(Seen).where(Seen.monitor_id == mid))
+    sess.execute(delete(TheatreIndex).where(TheatreIndex.monitor_id == mid))
+    sess.execute(delete(Snapshot).where(Snapshot.monitor_id == mid))
+    sess.execute(delete(Run).where(Run.monitor_id == mid))
+    res = sess.execute(delete(Monitor).where(Monitor.id == mid))
+    sess.commit()
+    return res.rowcount > 0

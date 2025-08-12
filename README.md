@@ -101,7 +101,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
 
 # Database Configuration
-STATE_DB=./artifacts/bms.db
+DATABASE_URL=sqlite:///./artifacts/bms.db
 
 # Scraping Configuration
 BMS_FORCE_UC=1
@@ -256,7 +256,8 @@ View all your active monitors with status and controls.
 |----------|-------------|---------|
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | Required |
 | `TELEGRAM_CHAT_ID` | Default chat for notifications | Required |
-| `STATE_DB` | SQLite database path | `./artifacts/bms.db` |
+| `DATABASE_URL` | SQLAlchemy database URL (e.g. `postgresql://user:pass@host/db`) | `sqlite:///./artifacts/bms.db` |
+| `STATE_DB` | Legacy SQLite database path (used if `DATABASE_URL` not set) | `./artifacts/bms.db` |
 | `BMS_FORCE_UC` | Force undetected-chromedriver | `1` |
 | `CHROME_BINARY` | Chrome/Chromium binary path | `/usr/bin/google-chrome` |
 | `TZ` | Timezone for timestamps | `Asia/Kolkata` |
