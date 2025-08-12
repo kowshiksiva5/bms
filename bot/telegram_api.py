@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, requests
-from config import TELEGRAM_BOT_TOKEN as _BOT, TELEGRAM_FALLBACK_CHAT_ID as _FALLBACK
+import requests
 from typing import Optional, Dict, Any
+from settings import settings
 
 from utils import titled
 
-BOT_TOKEN=_BOT
+BOT_TOKEN=settings.TELEGRAM_BOT_TOKEN
 API=f"https://api.telegram.org/bot{BOT_TOKEN}"
-FALLBACK_CHAT=_FALLBACK
+FALLBACK_CHAT=settings.TELEGRAM_CHAT_ID
 
 def _effective_chat(chat_id: Optional[str]) -> Optional[str]:
     c = (chat_id or "").strip() or FALLBACK_CHAT

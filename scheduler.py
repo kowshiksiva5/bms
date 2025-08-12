@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, time, json, traceback
+import re, time, json, traceback
 from typing import List, Dict, Tuple
 from datetime import datetime, timedelta
 from utils import titled
-from config import SCHEDULER_SLEEP_SEC as _SLEEP
+from settings import settings
+
+_SLEEP = settings.SCHEDULER_SLEEP_SEC
 
 from bot.telegram_api import send_text, send_alert
 from services.monitor_service import report_error, format_new_shows, build_new_shows_keyboard
@@ -16,9 +18,6 @@ from store import (
 from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_time_window
 from scraper import get_driver, set_trace as set_scr_trace, parse_theatres
 from services.driver_manager import DriverManager
-
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
-FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
 
 # ---------- helpers ----------
 def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"

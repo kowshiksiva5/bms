@@ -15,12 +15,12 @@ from bot.keyboards import kb_main, kb_date_picker, kb_theatre_picker, kb_interva
 from bot.telegram_api import send_text, send_alert, answer_cbq, get_updates
 from bot.commands import ensure_bot_commands
 from utils import titled, movie_title_from_url
-from config import TELEGRAM_ALLOWED_CHAT_IDS as _ALLOWED, BOT_OFFSET_FILE as _BOT_OFF
+from settings import settings
 def _health_summary() -> str:
     import shutil, os
     lines = []
     # DB
-    db_path = os.environ.get("STATE_DB", "./artifacts/state.db")
+    db_path = settings.STATE_DB
     size = 0
     try:
         if os.path.exists(db_path):
@@ -29,7 +29,7 @@ def _health_summary() -> str:
     except Exception as e:
         lines.append(f"DB: error: {e}")
     # Artifacts
-    art = os.environ.get("ART_DIR", "./artifacts")
+    art = settings.ART_DIR
     try:
         os.makedirs(art, exist_ok=True)
         _, _, files = next(os.walk(art))
@@ -37,7 +37,7 @@ def _health_summary() -> str:
     except Exception:
         lines.append(f"Artifacts: {art}")
     # Chrome path
-    chrome = os.environ.get("CHROME_BINARY", shutil.which("google-chrome") or shutil.which("chrome") or "(not set)")
+    chrome = settings.CHROME_BINARY or shutil.which("google-chrome") or shutil.which("chrome") or "(not set)"
     lines.append(f"Chrome: {chrome}")
     return "\n".join(lines)
 
@@ -62,8 +62,8 @@ def cmd_health(chat_id: str):
     send_text(chat_id, "\n".join(body))
 
 
-ALLOWED = set(_ALLOWED)
-UPD_OFF = _BOT_OFF
+ALLOWED = set(settings.TELEGRAM_ALLOWED_CHAT_IDS)
+UPD_OFF = settings.BOT_OFFSET_FILE
 
 DEFAULT_THEATRES = [
     "AMB Cinemas: Gachibowli",
@@ -111,7 +111,7 @@ def _discover_theatre_names(url: str, d8: str) -> list[str]:
         from services.driver_manager import DriverManager
         from scraper import parse_theatres
         from common import ensure_date_in_url
-        dm = DriverManager(debug=False, trace=False, artifacts_dir=os.environ.get("ART_DIR","./artifacts"))
+        dm = DriverManager(debug=False, trace=False, artifacts_dir=settings.ART_DIR)
         turl = ensure_date_in_url(url, d8)
         d = dm.open(turl)
         pairs = parse_theatres(d)
@@ -869,7 +869,7 @@ def handle_callback(upd):
     send_text(chat_id, "Unknown action.")
 
 def main():
-    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+    if settings.TELEGRAM_BOT_TOKEN:
         ok=ensure_bot_commands()
         if not ok:
             print("Failed to update commands.")

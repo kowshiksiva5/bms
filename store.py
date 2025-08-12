@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import os, time, json, sqlite3
-from config import STATE_DB as _STATE_DB
+from settings import settings
 from typing import List, Optional
 
-STATE_DB = _STATE_DB
+STATE_DB = settings.STATE_DB
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;

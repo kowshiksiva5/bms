@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, time, json
+import re, time, json
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
-from config import DEFAULT_HEARTBEAT_MINUTES as _DEF_HB
+
+from settings import settings
+
+_DEF_HB = settings.DEFAULT_HEARTBEAT_MINUTES
 
 from bot.telegram_api import send_text, send_alert
 from services.monitor_service import format_new_shows, build_new_shows_keyboard
@@ -14,9 +17,6 @@ from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_ti
 from scraper import set_trace as set_scr_trace, parse_theatres
 from services.driver_manager import DriverManager
 from services.monitor_service import report_error
-
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
-FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
 
 def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"
 def _now_i(): return int(time.time())
@@ -103,7 +103,7 @@ def run_one(monitor_id: Optional[str], url: Optional[str], dates: Optional[List[
                 with connect() as conn:
                     if monitor_id:
                         conn.execute("UPDATE monitors SET last_alert_ts=?, updated_at=? WHERE id=?", (_now_i(), _now_i(), monitor_id)); conn.commit()
-                chat=str((r and r["owner_chat_id"]) or os.environ.get("TELEGRAM_CHAT_ID",""))
+                chat=str((r and r["owner_chat_id"]) or settings.TELEGRAM_CHAT_ID)
                 msg = format_new_shows(r or {}, found)
                 kb = build_new_shows_keyboard(r or {}, found)
                 send_text(chat, msg, reply_markup=kb or None)
@@ -149,7 +149,7 @@ def run_one(monitor_id: Optional[str], url: Optional[str], dates: Optional[List[
                     eta = (int(rr["last_run_ts"]) + int(rr["interval_min"])*60 - _now_i()) if rr and rr["last_run_ts"] else 0
                     eta = max(0,eta)
                     msg = f"💓 Heartbeat [{monitor_id or 'ad-hoc'}]\nState: {(rr and rr['state']) or 'RUNNING'}\nInterval: {(rr and rr['interval_min']) or interval}m\nNext in ~ {eta//60}m {eta%60}s"
-                    send_alert(rr or (row or {}), str((rr and rr["owner_chat_id"]) or os.environ.get("TELEGRAM_CHAT_ID","")), msg)
+                    send_alert(rr or (row or {}), str((rr and rr["owner_chat_id"]) or settings.TELEGRAM_CHAT_ID), msg)
                     last_heartbeat=_now_i()
 
                 time.sleep(max(60, int((r and r["interval_min"]) or interval)*60))

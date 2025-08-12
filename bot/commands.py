@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, requests
-BOT_TOKEN=os.environ.get("TELEGRAM_BOT_TOKEN",""); API=f"https://api.telegram.org/bot{BOT_TOKEN}"
+import requests
+from settings import settings
+BOT_TOKEN=settings.TELEGRAM_BOT_TOKEN; API=f"https://api.telegram.org/bot{BOT_TOKEN}"
 COMMANDS=[
     {"command":"new","description":"Create monitor (wizard)"},
     {"command":"list","description":"List monitors"},

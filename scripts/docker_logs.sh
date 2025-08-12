@@ -73,10 +73,10 @@ if [[ "$DEBUG" == "--debug" ]]; then
     for container in bms-bot bms-worker-sample; do
         if docker ps --format "{{.Names}}" | grep -q "$container"; then
             echo "Testing $container:"
-            if docker exec "$container" python -c "import config; print('  ✅ config module')" 2>/dev/null; then
+            if docker exec "$container" python -c "from settings import settings; print('  ✅ settings module')" 2>/dev/null; then
                 :
             else
-                echo "  ❌ config module failed"
+                echo "  ❌ settings module failed"
             fi
             
             if [[ "$container" == "bms-bot" ]]; then

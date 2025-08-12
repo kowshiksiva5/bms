@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from settings import settings
 
 # ---------- trace / artifacts ----------
 _TRACE = False
@@ -43,9 +44,9 @@ def _save_artifacts(driver, label: str):
 
 # ---------- Chrome discovery ----------
 def get_chrome_binary() -> Optional[str]:
-    for k in ("CHROME_BINARY", "CHROMIUM_BINARY"):
-        if os.environ.get(k):
-            return os.environ[k]
+    for path in (settings.CHROME_BINARY, settings.CHROMIUM_BINARY):
+        if path:
+            return path
     mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     linux = "/usr/bin/google-chrome"
     if os.path.exists(mac): return mac
@@ -132,14 +133,14 @@ def get_driver(debug: bool = False):
             f"--remote-debugging-port={random.randint(9223,9555)}",
             "--no-first-run","--no-default-browser-check",
         ]
-        udd = os.environ.get("BMS_USER_DATA_DIR") or tempfile.mkdtemp(prefix="bms-chrome-")
-        prof = os.environ.get("BMS_PROFILE_DIR","Default")
+        udd = settings.BMS_USER_DATA_DIR or tempfile.mkdtemp(prefix="bms-chrome-")
+        prof = settings.BMS_PROFILE_DIR
         args.append(f"--user-data-dir={udd}"); args.append(f"--profile-directory={prof}")
         return args
 
     chrome_binary = get_chrome_binary()
     _dbg(f"chrome_binary={chrome_binary}")
-    force_uc = os.environ.get("BMS_FORCE_UC","1") == "1"
+    force_uc = settings.BMS_FORCE_UC
     _dbg(f"force_uc={force_uc}")
 
     if not force_uc:
@@ -165,8 +166,9 @@ def get_driver(debug: bool = False):
         if chrome_binary: uc_opts.binary_location = chrome_binary
         for a in build_args(): uc_opts.add_argument(a)
         major = _chrome_major_from_binary(chrome_binary) if chrome_binary else None
-        env_major = os.environ.get("BMS_CHROME_VERSION_MAIN")
-        if not major and env_major and env_major.isdigit(): major = int(env_major)
+        env_major = settings.BMS_CHROME_VERSION_MAIN
+        if not major and env_major:
+            major = env_major
         _dbg(f"UC version_main={major}")
         d = uc.Chrome(options=uc_opts, headless=(not debug), version_main=major) if major else uc.Chrome(options=uc_opts, headless=(not debug))
         d.set_page_load_timeout(60); _inject_stealth(d); _ua_override(d)

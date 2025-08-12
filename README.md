@@ -99,9 +99,11 @@ nano .env
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
+TELEGRAM_ALLOWED_CHAT_IDS=
 
 # Database Configuration
-STATE_DB=./artifacts/bms.db
+ART_DIR=./artifacts
+STATE_DB=./artifacts/state.db
 
 # Scraping Configuration
 BMS_FORCE_UC=1
@@ -251,14 +253,26 @@ View all your active monitors with status and controls.
 
 ## 🔧 Configuration
 
+All runtime configuration is managed through `settings.py`, which uses
+Pydantic's `BaseSettings` and automatically loads variables from the
+environment and a local `.env` file (via `python-dotenv`).
+
 ### Environment Variables
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | Required |
 | `TELEGRAM_CHAT_ID` | Default chat for notifications | Required |
-| `STATE_DB` | SQLite database path | `./artifacts/bms.db` |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Comma-separated whitelist of chat IDs | `""` |
+| `STATE_DB` | SQLite database path | `./artifacts/state.db` |
+| `ART_DIR` | Directory for artifacts and logs | `./artifacts` |
+| `BOT_OFFSET_FILE` | Telegram update offset tracking file | `./artifacts/bot_offset.txt` |
 | `BMS_FORCE_UC` | Force undetected-chromedriver | `1` |
 | `CHROME_BINARY` | Chrome/Chromium binary path | `/usr/bin/google-chrome` |
+| `BMS_USER_DATA_DIR` | Chrome user data directory | *(temp dir)* |
+| `BMS_PROFILE_DIR` | Chrome profile directory | `Default` |
+| `BMS_CHROME_VERSION_MAIN` | Override Chrome major version | — |
+| `SCHEDULER_SLEEP_SEC` | Scheduler poll interval (seconds) | `10` |
+| `DEFAULT_HEARTBEAT_MINUTES` | Default worker heartbeat minutes | `180` |
 | `TZ` | Timezone for timestamps | `Asia/Kolkata` |
 
 ### Docker Configuration
@@ -316,7 +330,7 @@ docker exec bms-bot ps aux
 docker exec bms-worker-sample ps aux
 
 # Test Python imports
-docker exec bms-bot python -c "import config; print('OK')"
+docker exec bms-bot python -c "from settings import settings; print('OK')"
 docker exec bms-worker-sample python -c "from services.driver_manager import DriverManager; print('OK')"
 ```
 
@@ -382,7 +396,7 @@ bms/
 ├── scheduler.py       # Background monitoring (11KB, 266 lines)
 ├── worker.py          # Individual monitor execution (9KB, 193 lines)
 ├── scraper.py         # Web scraping logic (11KB, 305 lines)
-├── config.py          # Configuration management
+├── settings.py        # Pydantic-based configuration
 ├── common.py          # Common utilities
 ├── utils.py           # Utility functions
 ├── requirements.txt   # Python dependencies
