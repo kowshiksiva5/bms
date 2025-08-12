@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, time, json, traceback
-from typing import List, Dict, Tuple
+import os, re, time, json
+from typing import List, Dict
 from datetime import datetime, timedelta
-from utils import titled
 from config import SCHEDULER_SLEEP_SEC as _SLEEP
 
-from bot.telegram_api import send_text, send_alert
-from services.monitor_service import report_error, format_new_shows, build_new_shows_keyboard
+from bot.telegram_api import send_alert
+from services.monitor_service import report_error
 
 from store import (
-    connect, get_active_monitors, get_monitor, set_state, set_reload, set_dates,
-    get_indexed_theatres, upsert_indexed_theatre, bulk_upsert_seen, is_seen, set_baseline_done
+    connect, get_active_monitors, set_state
 )
-from common import ensure_date_in_url, fuzzy, roll_dates, to_bms_date, within_time_window
-from scraper import get_driver, set_trace as set_scr_trace, parse_theatres
-from services.driver_manager import DriverManager
+from common import ensure_date_in_url, roll_dates, to_bms_date, within_time_window
+from redis import Redis
+from rq import Queue
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN","")
 FALLBACK_CHAT = os.environ.get("TELEGRAM_CHAT_ID","")
 
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+task_queue = Queue(connection=Redis.from_url(REDIS_URL))
+
 # ---------- helpers ----------
-def _fmt_date(d8: str)->str: return f"{d8[:4]}-{d8[4:6]}-{d8[6:]}"
 def _now_i(): return int(time.time())
 
 def _effective_dates(row)->List[str]:
@@ -63,119 +63,6 @@ def _format_scope(row: dict) -> str:
         the = []
     return "any" if "any" in the or not the else f"{len(the)} theatres"
 
-def _format_new_shows(row: dict, found: List[Tuple[str,str,str]]) -> str:
-    """
-    found: list of (theatre_name, YYYYMMDD, '11:10 PM')
-    Nice, grouped message with counts + deep link.
-    """
-    # bucket by date, then theatre → times
-    by_date: Dict[str, Dict[str, List[str]]] = {}
-    total_times = 0
-    for nm, d8, t in found:
-        by_date.setdefault(d8, {}).setdefault(nm, []).append(t)
-        total_times += 1
-
-    # build rows
-    lines = []
-    for d8 in sorted(by_date.keys()):
-        lines.append(f"🗓 {_fmt_date(d8)}")
-        for nm in sorted(by_date[d8].keys()):
-            times = ", ".join(sorted(set(by_date[d8][nm])))
-            lines.append(f"  • 🏟 {nm}: {times}")
-        lines.append("")  # blank between dates
-
-    first_d8 = sorted(by_date.keys())[0]
-    link = _deeplink(row, first_d8)
-
-    header = (
-        f"🎟️ New shows\n"
-        f"🔎 Monitor: {row['id']} • every {row.get('interval_min','?')}m • Theatres: {_format_scope(row)}\n"
-        f"🔗 {link}\n"
-    )
-    summary = f"\nTotals: {total_times} time(s) • {sum(len(v) for v in by_date.values())} theatre entries • {len(by_date)} date(s)"
-    body = header + "\n".join(lines).rstrip() + summary
-    return titled(row, body)
-
-# driver moved to services.driver_manager
-
-# ---------- actions ----------
-def _run_discover(dm: DriverManager, row):
-    eff = _effective_dates(row) or roll_dates(1)
-    date = eff[0]
-    url = ensure_date_in_url(row["url"], date)
-    d = dm.open(url)
-    pairs = parse_theatres(d)
-    names = sorted({n for n,_ in pairs})
-    with connect() as conn:
-        for nm in names:
-            upsert_indexed_theatre(conn, row["id"], date, nm)
-        set_state(conn, row["id"], "PAUSED")
-    chat = str(row["owner_chat_id"] or "")
-    send_alert(row, chat, (
-        f"🧭 Discover complete for [{row['id']}]\n"
-        f"Captured {len(names)} theatres for {_fmt_date(date)}.\n"
-        f"State set to PAUSED.\n"
-        f"🔗 {_deeplink(row, date)}"
-    ))
-
-def _run_monitor(dm: DriverManager, row, heartbeat_book: Dict[str,int]):
-    mid = row["id"]; chat=str(row["owner_chat_id"] or "")
-    eff_dates = _effective_dates(row)
-    if not eff_dates:
-        if (row["mode"] or "FIXED").upper()=="UNTIL":
-            with connect() as conn: set_state(conn, mid, "PAUSED")
-            send_alert(row, chat, f"⏸️ [{mid}] End date reached; auto-paused.")
-        return
-
-    # one-time baseline
-    if int(row["baseline"] or 0) == 1:
-        try:
-            for d8 in eff_dates:
-                turl = ensure_date_in_url(row["url"], d8)
-                d = dm.open(turl)
-                for name, shows in parse_theatres(d):
-                    twanted = json.loads(row["theatres"]) if row["theatres"] else []
-                    if not twanted or fuzzy(name, twanted):
-                        with connect() as conn:
-                            bulk_upsert_seen(conn, [(mid, d8, name, st, _now_i()) for st in shows])
-            with connect() as conn: set_baseline_done(conn, mid)
-            send_alert(row, chat, f"📏 Baseline captured for [{mid}] — alerts will fire only on newly added showtimes.")
-        except Exception as e:
-            send_alert(row, chat, f"⚠️ Baseline failed for [{mid}]: {e}")
-
-    found: List[Tuple[str,str,str]] = []
-    try:
-        for d8 in eff_dates:
-            turl = ensure_date_in_url(row["url"], d8)
-            d = dm.open(turl)
-            try:
-                for _ in range(2):
-                    d.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(0.5)
-            except Exception:
-                pass
-            pairs = parse_theatres(d)
-            with connect() as conn:
-                for nm,_ in pairs: upsert_indexed_theatre(conn, mid, d8, nm)
-            twanted = json.loads(row["theatres"]) if row["theatres"] else []
-            for nm, shows in pairs:
-                if not twanted or fuzzy(nm, twanted):
-                    for st in shows:
-                        with connect() as conn:
-                            if not is_seen(conn, mid, d8, nm, st):
-                                found.append((nm, d8, st))
-    except Exception:
-        dm.reset()
-        raise
-
-    if found:
-        msg = format_new_shows(row, found)
-        kb = build_new_shows_keyboard(row, found)
-        send_text(chat, msg, reply_markup=kb or None)
-        with connect() as conn:
-            bulk_upsert_seen(conn, [(mid, d, n, t, _now_i()) for n,d,t in found])
-            conn.execute("UPDATE monitors SET last_alert_ts=?, updated_at=? WHERE id=?", (_now_i(), _now_i(), mid))
-            conn.commit()
 
 def _send_heartbeat_if_due(row, heartbeat_book: Dict[str,int]):
     """Send heartbeat independently of scraping, so you always get a health ping."""
@@ -202,8 +89,7 @@ def _send_heartbeat_if_due(row, heartbeat_book: Dict[str,int]):
 # ---------- main loop ----------
 
 def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=None):
-    dm = DriverManager(debug=debug, trace=trace, artifacts_dir=artifacts_dir)
-    heartbeat_book: Dict[str,int] = {}
+    heartbeat_book: Dict[str, int] = {}
 
     while True:
         try:
@@ -217,9 +103,9 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=N
                     _send_heartbeat_if_due(r, heartbeat_book)
 
                     if int(r["reload"] or 0) == 1:
-                        dm.reset()
                         with connect() as conn:
-                            conn.execute("UPDATE monitors SET reload=0, updated_at=? WHERE id=?", (now, r["id"])); conn.commit()
+                            conn.execute("UPDATE monitors SET reload=0, updated_at=? WHERE id=?", (now, r["id"]))
+                            conn.commit()
 
                     if r["state"] == "STOPPING":
                         with connect() as conn:
@@ -231,14 +117,26 @@ def main_loop(debug=False, trace=False, artifacts_dir="./artifacts", sleep_sec=N
                         continue
 
                     last = int(r["last_run_ts"] or 0)
-                    ivl = max(60, int(r["interval_min"] or 5)*60)
+                    ivl = max(60, int(r["interval_min"] or 5) * 60)
                     if r["state"] == "DISCOVER" or now - last >= ivl:
                         with connect() as conn:
-                            conn.execute("UPDATE monitors SET last_run_ts=?, updated_at=? WHERE id=?", (now, now, r["id"])); conn.commit()
+                            conn.execute(
+                                "UPDATE monitors SET last_run_ts=?, updated_at=? WHERE id=?",
+                                (now, now, r["id"]),
+                            )
+                            conn.commit()
                         if r["state"] == "DISCOVER":
-                            _run_discover(dm, r)
+                            task_queue.enqueue(
+                                "tasks.monitor_tasks.run_discover",
+                                r,
+                                kwargs={"debug": debug, "trace": trace, "artifacts_dir": artifacts_dir},
+                            )
                         else:
-                            _run_monitor(dm, r, heartbeat_book)
+                            task_queue.enqueue(
+                                "tasks.monitor_tasks.run_monitor",
+                                r,
+                                kwargs={"debug": debug, "trace": trace, "artifacts_dir": artifacts_dir},
+                            )
                 except Exception as e:
                     print("monitor error:", e)
                     report_error(r, e)
@@ -258,7 +156,6 @@ def parse_args(argv=None):
 
 def main(argv=None):
     a = parse_args(argv)
-    set_scr_trace(a.trace, a.artifacts_dir)
     main_loop(debug=a.debug, trace=a.trace, artifacts_dir=a.artifacts_dir, sleep_sec=a.sleep_sec)
 
 if __name__ == "__main__":
